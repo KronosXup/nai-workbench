@@ -1,0 +1,34 @@
+# Build both stages from public images; the defaults can be overridden via Compose.
+ARG NODE_IMAGE=node:22-alpine
+ARG PYTHON_IMAGE=python:3.12-slim
+
+FROM ${NODE_IMAGE} AS frontend
+WORKDIR /build/client
+COPY client/package.json client/package-lock.json ./
+RUN npm ci
+COPY client/index.html client/tsconfig.json client/vite.config.ts ./
+COPY client/src/ ./src/
+COPY client/public/fonts/ ./public/fonts/
+COPY client/public/tokenizers/ ./public/tokenizers/
+COPY client/public/textures/login-ink-relief.webp ./public/textures/login-ink-relief.webp
+RUN npm run build
+
+FROM ${PYTHON_IMAGE} AS runtime
+WORKDIR /workbench
+COPY server/requirements.lock.txt ./server/requirements.lock.txt
+RUN python -m pip install --no-cache-dir -r server/requirements.lock.txt
+# Copy the Gate entrypoint and its imports.
+COPY server/app/__init__.py server/app/gate_bridge.py server/app/adapters.py server/app/config.py server/app/model_policy.py server/app/service.py server/app/database.py ./server/app/
+COPY --from=frontend /build/client/dist/ ./client/dist/
+COPY LICENSE ./client/dist/LICENSE
+COPY THIRD_PARTY_NOTICES.md ./client/dist/THIRD_PARTY_NOTICES.md
+COPY third_party_licenses/ ./client/dist/third_party_licenses/
+RUN chmod -R u=rwX,go=rX /workbench/server /workbench/client
+ENV PYTHONPATH=/workbench/server \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    WORKBENCH_STATIC_DIR=/workbench/client/dist
+USER 10001:10001
+EXPOSE 8787
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD python -c "import json,urllib.request; r=json.load(urllib.request.urlopen('http://127.0.0.1:8787/api/health',timeout=3)); assert r.get('ok') and r.get('mode')=='gate'"
+CMD ["python", "-m", "uvicorn", "app.gate_bridge:app", "--host", "0.0.0.0", "--port", "8787", "--workers", "1", "--no-access-log"]

@@ -1,0 +1,13 @@
+.venv/
+node_modules/
+client/dist/
+client/tsconfig.tsbuildinfo
+data/
+.env
+.env.*
+!.env.gate.example
+__pycache__/
+.pytest_cache/
+*.pyc
+artifacts/
+*.log

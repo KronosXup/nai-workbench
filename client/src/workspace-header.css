@@ -1,0 +1,236 @@
+.workspace-header,
+.workspace-menu-popover {
+  color: #f2f2f5;
+  font-family: "Source Sans Pro", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+}
+
+.workspace-header {
+  display: grid;
+  grid-template-columns: minmax(120px, 140px) minmax(0, 1fr) 40px 40px;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  width: 100%;
+  min-width: 0;
+  height: 64px;
+  min-height: 64px;
+  padding: 8px 20px;
+  border-bottom: 1px solid #303249;
+  background: #191b31;
+}
+
+header.workspace-header button,
+.workspace-menu-popover button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 36px;
+  padding: 7px 10px;
+  gap: 7px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #b8b9ca;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.25;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+header.workspace-header button:hover,
+.workspace-menu-popover button:hover { color: #f2f2f5; background: #292c45; }
+.workspace-header button:focus-visible,
+.workspace-menu-popover button:focus-visible { outline: 2px solid #f5f3c2; outline-offset: 2px; }
+
+.workspace-page-title {
+  min-width: 0;
+  margin: 0;
+  padding-inline: 4px;
+  overflow: hidden;
+  color: #f2f2f5;
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-resources {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: center;
+  gap: 2px;
+  justify-self: center;
+  width: min(100%, 280px);
+  min-width: 0;
+  color: #c9cad6;
+  font-size: 11px;
+  line-height: 1.25;
+}
+.workspace-resource {
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.workspace-resource > svg { flex: none; color: #c9c799; }
+.workspace-resource:nth-child(2) > svg { color: #aebbd9; }
+.workspace-resource-copy { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
+.workspace-resource-copy > small { flex: none; color: #9296b0; font-size: 10px; }
+.workspace-resource-copy > b { min-width: 0; overflow: hidden; color: #f2f2f5; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; text-overflow: ellipsis; }
+.workspace-resource-copy > .workspace-mock { padding: 1px 4px; border-radius: 3px; background: #2d304b; color: #bfc0cf; font-size: 9px; }
+.workspace-header button svg,
+.workspace-menu-popover button svg { flex: none; }
+
+.workspace-header .workspace-queue,
+.workspace-header .workspace-menu-button {
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  gap: 3px;
+}
+.workspace-queue b { max-width: 20px; overflow: hidden; color: #f2f2f5; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; text-overflow: clip; }
+.workspace-header .workspace-menu-button { color: #d2d3df; }
+
+/* On desktop draw, the header overlays only the 400px sidebar. The .nai-shell stays flush with the viewport so its canvas starts at y=0. The sidebar reserves the header height outside its scroll viewport, keeping controls and footer clear. */
+.app.official-draw { position: relative; }
+.app.official-draw > .workspace-header {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  left: 0;
+  width: 400px;
+  height: 64px;
+  min-height: 64px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) 40px 40px;
+  gap: 4px;
+  padding: 8px 10px;
+}
+.app.official-draw .nai-shell .nai-sidebar { padding-top: 64px; }
+
+.workspace-menu-popover {
+  position: fixed;
+  z-index: 140;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  height: auto;
+  min-height: 0;
+  padding: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #383b54;
+  border-radius: 5px;
+  background: #191b31;
+  box-shadow: 0 8px 24px #0005;
+}
+.workspace-menu-popover button { flex: none; justify-content: flex-start; min-height: 38px; padding: 8px 10px; gap: 10px; font-size: 15px; }
+.workspace-menu-popover button[aria-current="page"] { color: #f5f3c2; background: #2c2e43; }
+.workspace-menu-popover hr { flex: none; width: 100%; margin: 6px 0; border: 0; border-top: 1px solid #303249; }
+
+@media (max-width: 850px) {
+  .workspace-header { gap: 8px; padding-inline: 12px; }
+  .workspace-header .workspace-resources { width: min(100%, 260px); }
+}
+
+@media (max-width: 700px) {
+  .workspace-header,
+  .app.official-draw > .workspace-header {
+    position: relative;
+    top: auto;
+    left: auto;
+    grid-template-columns: minmax(0, 1fr) 36px 36px;
+    grid-template-rows: 36px auto;
+    gap: 4px 6px;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    padding: 6px 10px;
+  }
+  .workspace-page-title { grid-column: 1; grid-row: 1; }
+  .workspace-header .workspace-queue { grid-column: 2; grid-row: 1; width: 36px; height: 36px; min-height: 36px; }
+  .workspace-header .workspace-menu-button { grid-column: 3; grid-row: 1; width: 36px; height: 36px; min-height: 36px; }
+  .workspace-header .workspace-resources {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+    justify-self: stretch;
+    width: 100%;
+    padding: 0 2px;
+  }
+  .app.official-draw .nai-shell .nai-sidebar { padding-top: 0; }
+}
+
+@media (max-width: 370px) {
+  .workspace-header,
+  .app.official-draw > .workspace-header { padding-inline: 8px; }
+  .workspace-header .workspace-resources { column-gap: 6px; }
+  .workspace-resource { gap: 4px; }
+  .workspace-resource-copy { gap: 3px; }
+}
+
+.image-viewer-stage { flex: 1; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; touch-action: none; cursor: grab; }
+.image-viewer-stage:active { cursor: grabbing; }
+.image-viewer-stage img { max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; }
+.lightbox > header { flex-wrap: wrap; flex-shrink: 0; }
+.nai-advanced { max-height: min(60vh, 520px); overflow-y: auto; }
+.nai-prompt-options select { max-width: 140px; font: inherit; }
+.character-position-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; }
+.character-position-grid button { min-height: 28px; }
+.character-position-grid button[aria-pressed="true"] { background: #f5f3c2; color: #131528; }
+
+.image-viewer-stage { width: 100%; }
+.nai-stage.tool-comparison { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-items: center; gap: 12px; }
+.nai-stage.tool-comparison > img { width: 100%; min-width: 0; max-height: 100%; object-fit: contain; }
+.nai-advanced > small { grid-column: 1 / -1; }
+.nai-prompt-card > section[hidden] { display: none; }
+.prompt-chunk p { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Director reserves the floating navigation height once. Queue/error banners
+   remain in normal flow underneath, so a running job never covers its controls. */
+.app.director-page { position: relative; min-height: 0; padding-top: 54px; }
+.app.director-page > .workspace-header {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  grid-template-columns: 74px minmax(0, 1fr) 36px 36px;
+  grid-template-rows: 1fr;
+  gap: 8px;
+  width: min(450px, 100%);
+  height: 54px;
+  min-height: 54px;
+  padding: 5px 12px;
+  border: 1px solid #303249;
+  border-top: 0;
+  border-radius: 0 0 5px 5px;
+}
+.workspace-director-home { min-width: 0; }
+.workspace-director-home .workspace-page-title {
+  position: absolute; width: 1px; height: 1px; padding: 0;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+header.workspace-header .workspace-director-home button {
+  width: 100%; height: 40px; padding: 0; gap: 10px; color: #f2f2f5;
+}
+.app.director-page .workspace-header .workspace-resources {
+  grid-column: 2; grid-row: 1; grid-template-columns: minmax(0, 1fr);
+  justify-self: center; width: max-content; max-width: 100%; padding: 0;
+}
+.app.director-page .workspace-header .workspace-queue { grid-column: 3; grid-row: 1; width: 36px; }
+.app.director-page .workspace-header .workspace-menu-button { grid-column: 4; grid-row: 1; width: 36px; }
+.app.director-page .workspace-resource-copy > b { font-size: 13px; }
+.app.director-page .workspace-resource-copy > small { font-size: 11px; }
+@media (max-width: 450px) {
+  .app.director-page > .workspace-header { gap: 5px; padding-inline: 8px; grid-template-columns: 58px minmax(0, 1fr) 36px 36px; }
+  header.workspace-header .workspace-director-home button { gap: 5px; }
+}
