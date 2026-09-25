@@ -1,0 +1,30 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.gate
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-alpine}
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
+    image: nai-workbench:${WORKBENCH_IMAGE_TAG:-gate}
+    ports:
+      - "${WORKBENCH_BIND:-127.0.0.1}:${WORKBENCH_PORT:-8787}:8787"
+    environment:
+      WORKBENCH_GATE_URL: ${WORKBENCH_GATE_URL:?Set the internal Gate URL}
+    networks:
+      - gate
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 768m
+    cpus: 2
+    pids_limit: 128
+    restart: unless-stopped
+networks:
+  gate:
+    external: true
+    name: ${GATE_DOCKER_NETWORK:?Set the existing Gate network name}

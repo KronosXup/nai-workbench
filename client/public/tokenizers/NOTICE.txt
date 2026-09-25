@@ -1,0 +1,22 @@
+Image prompt tokenizers used by this workbench
+
+qwen.json
+  Qwen/Qwen3.5-9B tokenizer.json, commit c202236235762e1c871ad0ccb60c8ee5ba337b9a
+  https://huggingface.co/Qwen/Qwen3.5-9B
+  Apache-2.0; see LICENSE-APACHE-2.0.txt
+
+t5.json
+  google-t5/t5-small tokenizer.json, commit df1b051c49625cf57a3d0d8d3863ed4d13564fe4
+  https://huggingface.co/google-t5/t5-small
+  Apache-2.0; see LICENSE-APACHE-2.0.txt
+
+clip.json
+  OpenAI CLIP tokenizer vocabulary and BPE merges. The published JSON format
+  was obtained from openai/clip-vit-base-patch32, commit
+  3d74acf9a28c67741b2f4f2ea7635f0aaf6f0268, and its 48,894 merges
+  were checked against the original OpenAI CLIP BPE file:
+  https://github.com/openai/CLIP/blob/main/clip/bpe_simple_vocab_16e6.txt.gz
+  MIT; see LICENSE-CLIP-MIT.txt
+
+These files are used locally in the browser for token counting. NovelAI's
+client tokenizer definition files are not included in this release.

@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1200" viewBox="0 0 1800 1200" fill="none">
+  <title>深靛色叠印底纹</title>
+  <desc>柔边叠色与渐隐网点，中央留给登录表单。</desc>
+  <defs>
+    <linearGradient id="left-ink" x1="-90" y1="160" x2="470" y2="540" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#35364b"/>
+      <stop offset=".56" stop-color="#2b2d40"/>
+      <stop offset="1" stop-color="#222432" stop-opacity=".3"/>
+    </linearGradient>
+    <linearGradient id="lower-ink" x1="10" y1="1180" x2="350" y2="750" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#373246"/>
+      <stop offset=".55" stop-color="#2a293b"/>
+      <stop offset="1" stop-color="#242534" stop-opacity=".25"/>
+    </linearGradient>
+    <linearGradient id="right-ink" x1="1870" y1="1100" x2="1350" y2="670" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3b3449"/>
+      <stop offset=".52" stop-color="#2c2d40"/>
+      <stop offset="1" stop-color="#242533" stop-opacity=".25"/>
+    </linearGradient>
+    <linearGradient id="upper-ink" x1="1790" y1="-40" x2="1470" y2="330" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2e2d3f"/>
+      <stop offset="1" stop-color="#222330" stop-opacity=".4"/>
+    </linearGradient>
+    <!-- Distant impressions have softer edges than the overlapping foreground. -->
+    <filter id="soft-back" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+    <filter id="soft-front" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="2.8"/>
+    </filter>
+    <pattern id="screen" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(-18)">
+      <circle cx="3" cy="3" r="1.35" fill="#9995b0" fill-opacity=".1"/>
+      <circle cx="9" cy="9" r="1.35" fill="#9995b0" fill-opacity=".1"/>
+    </pattern>
+    <!-- Fade the regular dots without reintroducing a paper-noise layer. -->
+    <radialGradient id="screen-fade">
+      <stop offset=".2" stop-color="white" stop-opacity=".85"/>
+      <stop offset=".6" stop-color="white" stop-opacity=".45"/>
+      <stop offset="1" stop-color="white" stop-opacity="0"/>
+    </radialGradient>
+    <mask id="screen-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="1800" height="1200" style="mask-type:alpha">
+      <ellipse cx="105" cy="435" rx="335" ry="470" fill="url(#screen-fade)"/>
+      <ellipse cx="1730" cy="990" rx="380" ry="390" fill="url(#screen-fade)"/>
+    </mask>
+  </defs>
+
+  <rect width="1800" height="1200" fill="#191a25"/>
+
+  <!-- Broad ink layers keep their shape while the turns and overlaps soften. -->
+  <g filter="url(#soft-back)">
+    <path d="M-170-100H465C479-15 555 49 552 116S453 260 408 275 334 247 289 273 235 373 163 375L-170 287Z" fill="url(#left-ink)" opacity=".6"/>
+    <path d="M-120 693C-21 675 123 620 183 664S299 836 304 899 257 1109 258 1280H-120Z" fill="url(#lower-ink)" opacity=".72"/>
+    <path d="M1465-110C1500-24 1478 61 1545 92S1718 95 1761 163 1844 280 1890 293V-110Z" fill="url(#upper-ink)" opacity=".8"/>
+    <path d="M1890 526C1818 536 1755 523 1705 568L1552 714C1524 749 1589 798 1562 850S1403 953 1380 1020 1455 1200 1478 1290H1890Z" fill="url(#right-ink)" opacity=".7"/>
+  </g>
+
+  <g filter="url(#soft-front)">
+    <path d="M-130 244C-26 221 108 114 167 126S383 194 414 238 297 349 290 389 342 448 331 487 172 660 112 685-65 612-130 542Z" fill="url(#left-ink)" opacity=".76"/>
+    <path d="M-150 385C-49 359 74 292 127 295S240 334 249 367 204 436 216 471 290 520 284 555 195 670 146 685-71 721-150 716Z" fill="url(#left-ink)" opacity=".7"/>
+    <path d="M-120 963C-33 939 106 861 155 897S326 1063 364 1118 409 1218 418 1280H-120Z" fill="url(#lower-ink)" opacity=".84"/>
+    <path d="M-85 1100C-14 1080 112 1030 151 1050S233 1110 235 1143 216 1200 222 1280H-85Z" fill="url(#lower-ink)" opacity=".62"/>
+
+    <path d="M1647 32C1626 87 1521 175 1542 213S1660 361 1712 382 1843 361 1890 362V53Z" fill="url(#upper-ink)" opacity=".65"/>
+    <path d="M1900 732C1850 731 1801 723 1767 735S1628 753 1596 788 1493 924 1500 972 1569 1167 1599 1280H1900Z" fill="url(#right-ink)" opacity=".83"/>
+    <path d="M1650 1280C1592 1219 1538 1148 1500 1096S1436 975 1397 990 1233 1123 1230 1158 1250 1243 1260 1280Z" fill="url(#right-ink)" opacity=".42"/>
+    <path d="M1900 1000C1835 1007 1778 987 1741 1017S1589 1102 1576 1144 1606 1243 1618 1280H1900Z" fill="url(#right-ink)" opacity=".62"/>
+  </g>
+
+  <rect width="1800" height="1200" fill="url(#screen)" mask="url(#screen-mask)"/>
+</svg>

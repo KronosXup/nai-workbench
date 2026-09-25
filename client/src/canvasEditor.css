@@ -1,0 +1,108 @@
+.canvas-editor {
+  --canvas-page: var(--paper, #13152c);
+  --canvas-panel: var(--surface, #191b31);
+  --canvas-card: var(--card, #0e0f21);
+  --canvas-control: var(--control, #24263f);
+  --canvas-control-hover: var(--control-hover, #30334e);
+  --canvas-line: var(--line, #282b45);
+  --canvas-ink: var(--ink, #f2f2f5);
+  --canvas-muted: var(--muted, #aaabb9);
+  --canvas-accent: var(--yellow, #f5f3c2);
+  display: flex;
+  flex-direction: column;
+  width: min(96vw, 1480px);
+  height: min(94vh, 900px);
+  min-height: 420px;
+  overflow: hidden;
+  color: var(--canvas-ink);
+  background: var(--canvas-panel);
+  border: 1px solid var(--canvas-line);
+  border-radius: 8px;
+  box-shadow: 0 24px 70px #080913a6;
+  font: 13px/1.4 "Source Sans Pro", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+}
+.canvas-editor button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 4px 8px;
+  color: var(--canvas-ink);
+  background: var(--canvas-control);
+  border: 1px solid var(--canvas-line);
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1.2;
+}
+.canvas-editor button:hover:not(:disabled) { background: var(--canvas-control-hover); }
+.canvas-editor button:disabled { opacity: .4; cursor: not-allowed; }
+.canvas-editor button:focus-visible,
+.canvas-editor canvas:focus-visible,
+.canvas-editor input:focus-visible { outline: 2px solid var(--canvas-accent); outline-offset: 2px; }
+.canvas-editor-header,
+.canvas-editor-footer { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--canvas-page); }
+.canvas-editor-header { justify-content: space-between; border-bottom: 1px solid var(--canvas-line); }
+.canvas-editor-header div { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.canvas-editor-header h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.canvas-editor-header small { color: var(--canvas-accent); font-size: 10px; letter-spacing: .1em; }
+.canvas-editor-header span,
+.canvas-editor-layers p,
+.canvas-editor-zoom span { color: var(--canvas-muted); font-size: 12px; }
+.canvas-editor-body { display: flex; flex: 1; min-height: 0; }
+.canvas-editor-main { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+.canvas-editor-toolbar,
+.canvas-editor-zoom { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px 10px; }
+.canvas-editor-toolbar { border-bottom: 1px solid var(--canvas-line); }
+.canvas-editor-tool-group { display: flex; align-items: center; gap: 4px; flex: 1 0 100%; flex-wrap: wrap; }
+.canvas-editor-tool-group button { min-height: 29px; padding: 4px 7px; font-size: 12px; }
+.canvas-editor-toolbar button[aria-pressed="true"] { color: var(--canvas-accent); background: var(--canvas-control-hover); border-color: #575a79; }
+.canvas-editor-toolbar label { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: 12px; }
+.canvas-editor-toolbar input[type="range"] { width: 86px; accent-color: var(--canvas-accent); }
+.theme-official .canvas-editor-toolbar input[type="color"] { flex: none; width: 31px; min-width: 31px; height: 27px; padding: 1px; background: transparent; border: 0; cursor: pointer; }
+.canvas-editor-viewport {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background-color: #17182d;
+  background-image: linear-gradient(45deg, #22243d 25%, transparent 25%), linear-gradient(-45deg, #22243d 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #22243d 75%), linear-gradient(-45deg, transparent 75%, #22243d 75%);
+  background-size: 24px 24px;
+  background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+}
+.canvas-editor-viewport canvas { flex: none; max-width: none; max-height: none; background: transparent; box-shadow: 0 4px 24px #080913a6; touch-action: none; }
+.canvas-editor-placeholder { position: absolute; max-width: 80%; padding: 12px 16px; color: var(--canvas-ink); border: 1px solid var(--canvas-line); border-radius: 5px; background: #111326e8; text-align: center; }
+.canvas-editor-zoom { min-height: 44px; border-top: 1px solid var(--canvas-line); }
+.canvas-editor-zoom span { margin-left: auto; }
+.canvas-editor-layers { width: 286px; flex: none; overflow-y: auto; padding: 11px; border-left: 1px solid var(--canvas-line); background: var(--canvas-page); }
+.canvas-editor-layers-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.canvas-editor-layers-heading h3 { margin: 0; font-size: 14px; }
+.canvas-editor-layers p { margin: 8px 0 12px; line-height: 1.5; }
+.canvas-editor-layers ul { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.canvas-editor-layers li { display: flex; align-items: center; gap: 3px; min-width: 0; padding: 4px; border: 1px solid var(--canvas-line); border-radius: 4px; background: var(--canvas-panel); }
+.canvas-editor-layers li.selected { border-color: #66698a; }
+.canvas-editor-layers li button { min-width: 26px; min-height: 28px; padding: 2px; border: 0; background: transparent; }
+.canvas-editor-layers li .canvas-editor-layer-name { justify-content: flex-start; min-width: 0; flex: 1; overflow: hidden; padding-left: 5px; white-space: nowrap; text-overflow: ellipsis; }
+.canvas-editor-base { justify-content: space-between; padding: 8px 10px !important; color: var(--canvas-muted); }
+.canvas-editor-base span:last-child { color: var(--canvas-accent); }
+.canvas-editor-footer { border-top: 1px solid var(--canvas-line); flex-wrap: wrap; }
+.canvas-editor-footer span { flex: 1; min-width: 170px; color: var(--canvas-muted); font-size: 12px; }
+.canvas-editor-footer .canvas-editor-save { color: #15162b; border-color: #eeebba; background: var(--canvas-accent); font-weight: 600; }
+.canvas-editor-footer .canvas-editor-save:hover:not(:disabled) { background: #ffffda; }
+@media (max-width: 760px) {
+  .canvas-editor { width: 100vw; height: 100dvh; min-height: 0; border-radius: 0; }
+  .canvas-editor-body { flex-direction: column; }
+  .canvas-editor-main { min-height: 0; }
+  .canvas-editor-tool-group { flex-basis: 100%; }
+  .canvas-editor-toolbar { gap: 5px; padding: 6px 8px; }
+  .canvas-editor-toolbar input[type="range"] { width: 72px; }
+  .canvas-editor-layers { width: auto; max-height: 25%; border-top: 1px solid var(--canvas-line); border-left: 0; }
+  .canvas-editor-zoom span { display: none; }
+  .canvas-editor-footer { gap: 6px; padding: 8px; }
+  .canvas-editor-footer span { flex-basis: 100%; min-width: 0; }
+  .canvas-editor-footer button { flex: 1 1 auto; min-width: 0; white-space: nowrap; }
+}

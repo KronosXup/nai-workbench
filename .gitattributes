@@ -1,0 +1,4 @@
+# Bundled upstream data should not dominate the source-code language statistics.
+client/public/tokenizers/*.json linguist-vendored=true
+client/public/fonts/** linguist-vendored=true
+third_party_licenses/** linguist-vendored=true
