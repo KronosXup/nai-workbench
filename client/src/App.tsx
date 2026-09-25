@@ -1227,57 +1227,83 @@ export default function App() {
     try {
       const exported = await local.exportBackup(owner, draft, scope);
       if (seq !== generation.current || owner !== identity.current || scope !== canvasScope.current) return;
-      downloadBackup(exported.blob);
+      downloadBackup(exported.blobs, exported.setId);
+      const partNote = exported.blobs.length > 1
+        ? `共 ${exported.blobs.length} 个文件；请全部保存，导入时一次选中。` : "";
       if (exported.projectsUnavailable || exported.omitted) {
         const warning = exported.projectsUnavailable
           ? "备份已导出，但本机画布工程读取失败，文件不含这些工程。图库与草稿仍已导出。"
           : `备份已导出；${exported.omitted} 个画布工程未纳入（其中 ${exported.referencedOmitted} 个关联当前草稿或历史任务）。本机原工程未删除，未纳入工程的图层无法靠此备份恢复。`;
-        setBackupWarning(warning);
-        notify(warning);
+        setBackupWarning(`${warning} ${partNote}`.trim());
+        notify(`${warning} ${partNote}`.trim());
       } else {
-        setBackupWarning("");
-        notify(`备份已导出，包含 ${exported.projects} 个画布工程`);
+        setBackupWarning(partNote);
+        notify(`备份已开始下载，包含 ${exported.projects} 个画布工程。${partNote}`);
       }
     } catch (e) {
       if (seq === generation.current) fail(e);
     }
   }
-  function downloadBackup(blob: Blob) {
-    local.download(
-      blob,
-      `nai-workbench-${new Date().toISOString().slice(0, 10)}.json`,
-    );
+  function downloadBackup(blobs: Blob[], setId: string) {
+    const name = `nai-workbench-${new Date().toISOString().slice(0, 10)}`;
+    for (const [index, blob] of blobs.entries()) {
+      const suffix = blobs.length === 1 ? "" : `-${setId}-part-${String(index + 1).padStart(2, "0")}-of-${String(blobs.length).padStart(2, "0")}`;
+      local.download(blob, `${name}${suffix}.json`);
+    }
   }
-  async function restore(file: File) {
+  async function restore(files: File[]) {
     const seq = generation.current,
       owner = identity.current,
       scope = canvasScope.current;
+    let ordered: File[];
+    try { ordered = local.orderBackupFiles(files); }
+    catch (e) { fail(e); return; }
     const accepted = await askConfirmation({
       title: "导入备份？",
-      message: "导入会合并本机图库和画布工程，并替换绘图草稿、导演工具草稿与提示词预设。",
+      message: `将导入 ${ordered.length} 个备份文件，合并本机图库和画布工程，并替换绘图草稿、导演工具草稿与提示词预设。`,
       confirmLabel: "确认导入",
     });
     if (!accepted || seq !== generation.current || owner !== identity.current || scope !== canvasScope.current)
       return;
+    let imported = 0;
+    let imageCount = 0;
+    let projectCount = 0;
+    let warning = "";
+    let restoredDraft: Draft | undefined;
     try {
-      const result = await local.importBackup(owner, file, scope);
+      for (const file of ordered) {
+        const result = await local.importBackup(owner, file, scope);
+        imported++;
+        imageCount += result.count;
+        projectCount += result.projects;
+        if (result.draft) restoredDraft = result.draft;
+        if (result.projectsUnavailable || result.omittedProjects) {
+          warning = result.projectsUnavailable
+            ? "这份备份未包含画布工程；图库与草稿已导入，原工程图层无法从此文件恢复。"
+            : `这份备份省略了 ${result.omittedProjects} 个画布工程（其中 ${result.referencedOmitted} 个关联草稿或历史任务）；相关图层无法从此文件恢复。`;
+        }
+      }
       if (seq !== generation.current || owner !== identity.current || scope !== canvasScope.current) return;
       const images = await local.gallery(owner);
       if (seq !== generation.current || owner !== identity.current) return;
       setRows(images);
-      if (result.draft) setDraft(migrateDirectorDraft(result.draft));
-      if (result.projectsUnavailable || result.omittedProjects) {
-        const warning = result.projectsUnavailable
-          ? "这份备份未包含画布工程；图库与草稿已导入，原工程图层无法从此文件恢复。"
-          : `这份备份省略了 ${result.omittedProjects} 个画布工程（其中 ${result.referencedOmitted} 个关联草稿或历史任务）；相关图层无法从此文件恢复。`;
+      if (restoredDraft) setDraft(migrateDirectorDraft(restoredDraft));
+      if (warning) {
         setBackupWarning(warning);
-        notify(`已导入 ${result.count} 项结果、${result.projects} 个画布工程；${warning}`);
+        notify(`已导入 ${imageCount} 项结果、${projectCount} 个画布工程；${warning}`);
       } else {
         setBackupWarning("");
-        notify(`已导入 ${result.count} 项结果、${result.projects} 个画布工程`);
+        notify(`已导入 ${imageCount} 项结果、${projectCount} 个画布工程`);
       }
     } catch (e) {
-      if (seq === generation.current) fail(e);
+      if (seq === generation.current) {
+        if (imported) {
+          setRows(await local.gallery(owner));
+          if (restoredDraft) setDraft(migrateDirectorDraft(restoredDraft));
+          setBackupWarning(`已导入 ${imported}/${ordered.length} 个文件；请重新选择整组备份重试。`);
+        }
+        fail(e);
+      }
     }
   }
   const models = caps?.models?.length ? caps.models : fallbackModels;
@@ -1810,10 +1836,11 @@ export default function App() {
                     <input
                       type="file"
                       hidden
+                      multiple
                       accept="application/json,.json"
                       onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) void restore(f);
+                        const selected = Array.from(e.target.files ?? []);
+                        if (selected.length) void restore(selected);
                         e.target.value = "";
                       }}
                     />
@@ -2037,10 +2064,11 @@ export default function App() {
                       <input
                         type="file"
                         hidden
+                        multiple
                         accept="application/json,.json"
                         onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (f) void restore(f);
+                          const selected = Array.from(e.target.files ?? []);
+                          if (selected.length) void restore(selected);
                           e.target.value = "";
                         }}
                       />

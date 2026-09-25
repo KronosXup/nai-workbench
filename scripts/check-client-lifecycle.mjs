@@ -131,6 +131,7 @@ function harness() {
     notify: () => {},
     fail: error => { state.errors.push(error); },
     local: {
+      orderBackupFiles: files => files,
       getImage: async (identity, id) => state.records.get(`${identity}:${id}`),
       isRemoved: async (identity, id) => state.removed.has(`${identity}:${id}`),
       storeResult: async (identity, inputJob, inputResult, blob) => {
@@ -485,7 +486,7 @@ const checks = [
     const pending = new Promise(resolve => { finish = resolve; });
     const started = new Promise(resolve => { markStarted = resolve; });
     h.scope.local.importBackup = async () => { markStarted(); return pending; };
-    const importWork = h.fn('restore')({name: 'fixture.json'});
+    const importWork = h.fn('restore')([{name: 'fixture.json'}]);
     await started;
     h.switchToB();
     finish({count: 1, draft: {prompt: 'Private A backup draft'}});
@@ -498,7 +499,7 @@ const checks = [
 
 for (const [name, boundary, argument] of [
   ['removeLocal', 'removeImage', {id: 'fixture-result'}],
-  ['restore', 'importBackup', {name: 'fixture.json'}],
+  ['restore', 'importBackup', [{name: 'fixture.json'}]],
 ]) {
   checks.push([`${name} cannot act on a new identity after awaiting confirmation`, async () => {
     const h = harness();

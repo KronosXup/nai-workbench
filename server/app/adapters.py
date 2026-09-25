@@ -222,7 +222,9 @@ def build_request(job: dict) -> tuple[str, dict, bool]:
     model = str(job.get("model") or "nai-diffusion-4-5-full")
     prompt = str(job.get("prompt", ""))
     negative = str(job.get("negative_prompt", ""))
-    stream = bool(params.pop("stream", False))
+    stream = params.pop("stream", False)
+    if type(stream) is not bool:
+        raise AdapterError("invalid_stream", "流式选项必须是布尔值")
     if operation in {"upscale", "augment", "encode_vibe", "img2img", "inpaint"}:
         if not params.get("image"):
             raise AdapterError("image_required", "这个操作需要输入图片")

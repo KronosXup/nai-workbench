@@ -90,6 +90,8 @@ def validate_task(raw: dict, settings: Settings) -> dict:
         _number(p, "scale_factor", 2, 1, 4)
     if "sampler" in p and (not isinstance(p["sampler"], str) or len(p["sampler"]) > 80):
         fail(422, "sampler 无效")
+    if "stream" in p and type(p["stream"]) is not bool:
+        fail(422, "stream 必须是布尔值")
     try:
         encoded = compact(item).encode()
     except (ValueError, TypeError, RecursionError):

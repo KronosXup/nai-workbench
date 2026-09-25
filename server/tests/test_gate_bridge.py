@@ -219,7 +219,9 @@ def test_v5_curated_inpaint_quote_counts_v45_vibe_encoding_units():
 def test_tag_suggestions_forward_only_a_bounded_fragment_and_do_not_generate():
     calls = []
     async def gate(request):
-        calls.append((request.url.path, request.headers.get('authorization'), json.loads(request.content)))
+        if request.url.path == '/user/information':
+            return httpx.Response(200, json={'username': 'fixture'})
+        calls.append((request.method, request.url.path, request.headers.get('authorization'), json.loads(request.content)))
         return httpx.Response(200, json={'tags':[{'tag':'blue sky','count':123},{'tag':'sunset','count':7}]})
     async def run():
         app = create_app('http://gate.fixture', httpx.MockTransport(gate))
@@ -230,7 +232,7 @@ def test_tag_suggestions_forward_only_a_bounded_fragment_and_do_not_generate():
             assert (await client.post('/api/suggest-tags',headers=headers,json={'prompt':'blue','model':'unknown'})).status_code == 422
             response=await client.post('/api/suggest-tags',headers=headers,json={'prompt':'blue','model':'nai-diffusion-5-full'})
             assert response.status_code == 200 and response.json()['tags'][0]['tag'] == 'blue sky'
-        assert calls == [('/ai/generate-image/suggest-tags','Bearer fixture',{'prompt':'blue','model':'nai-diffusion-5-full'})]
+        assert calls == [('POST','/ai/generate-image/suggest-tags','Bearer fixture',{'prompt':'blue','model':'nai-diffusion-5-full'})]
     asyncio.run(run())
 
 
@@ -436,8 +438,16 @@ def test_busy_browser_bridge_reports_a_retryable_wait_without_starting_another_j
                 return [Artifact(b'fixture')]
             async def close(self):
                 pass
-        app = create_app('http://fixture', httpx.MockTransport(lambda _: httpx.Response(200, json={'username': 'fixture'})), Adapter)
+        def gate(request):
+            if request.url.path == '/user/subscription':
+                return httpx.Response(200, json={'naiGate': {'anlasMonthlyLimit': 100, 'anlasLeft': 100}})
+            return httpx.Response(200, json={'username': 'fixture'})
+        app = create_app('http://fixture', httpx.MockTransport(gate), Adapter)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://fixture') as client:
+            # A signed-in browser has already checked its Key; warm that cache
+            # before testing all eight concurrent generation slots.
+            for key in 'ABCDEFGH':
+                assert (await client.get('/api/me', headers={'Authorization': f'Bearer {key}'})).status_code == 200
             first = [asyncio.create_task(client.post('/api/execute', headers={'Authorization': f'Bearer {key}'}, json=task()))
                      for key in 'ABCDEFGH']
             try:
@@ -468,9 +478,11 @@ def test_queue_status_is_authenticated_cached_whitelisted_and_failure_safe(monke
         entered, release = asyncio.Event(), asyncio.Event()
 
         async def gate(request):
-            calls.append(request)
+            if request.url.path == '/user/information':
+                return httpx.Response(200, json={'username': 'fixture'})
             assert request.url.path == '/queue-status'
             assert request.headers.get('authorization') is None
+            calls.append(request)
             if mode[0] == 'blocked':
                 entered.set()
                 await release.wait()
@@ -537,6 +549,9 @@ def test_queue_status_cache_isolated_between_app_instances():
         calls = {'one': 0, 'two': 0}
         async def gate(name, active):
             async def handle(request):
+                if request.url.path == '/user/information':
+                    return httpx.Response(200, json={'username': name})
+                assert request.url.path == '/queue-status'
                 calls[name] += 1
                 return httpx.Response(200, json={'global': {'active': active, 'waiting': 0, 'concurrency': 8},
                                                   'image_cooldown_remaining': 0})

@@ -1,5 +1,5 @@
 import { sha256 } from "@noble/hashes/sha256";
-import type { Draft, Job, LocalImage, Result } from "./types";
+import { uuid, type Draft, type Job, type LocalImage, type Result } from "./types";
 import { selectCanvasProjectsForBackup, validateCanvasProject } from "./canvasProject";
 import type { CanvasProject } from "./canvasProject";
 import { InvalidDraftError, validateDraft, validateParameters } from "./draftValidation";
@@ -229,6 +229,11 @@ export function download(blob: Blob, name: string) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
+const MAX_BACKUP_PART_FILE_BYTES = 256 * 1024 * 1024;
+const MAX_BACKUP_PART_DECODED_BYTES = 192 * 1024 * 1024;
+
+// A backup part stays below the importer limits even when the gallery is large.
+// Each part uses the existing v1/v2 format, so older single-file backups still import.
 export async function exportBackup(owner: string, draft: Draft, projectScope?: string) {
   const rows = await gallery(owner);
   const priority = new Map<string, number>();
@@ -252,38 +257,85 @@ export async function exportBackup(owner: string, draft: Draft, projectScope?: s
   const projects = choice.selected;
   const omitted = choice.omitted + found.invalid;
   const referencedOmitted = choice.referencedOmitted + found.invalidHashes.filter(hash => (priority.get(hash) ?? 0) > 0).length;
-  const images = await Promise.all(
-    rows.map(async (row) => ({
-      ...row,
-      blob: undefined,
-      base64: await blobBase64(row.blob),
-    })),
-  );
-  const canvas_projects = await Promise.all(projects.map(async row => ({
-    outputHash: row.outputHash,
-    width: row.width,
-    height: row.height,
-    base: { type: row.base.type, base64: await blobBase64(row.base) },
-    layers: await Promise.all(row.layers.map(async layer => ({
-      id: layer.id, name: layer.name, visible: layer.visible, base64: await blobBase64(layer.blob),
-    }))),
-  })));
-  const blob = new Blob(
-    [
-      JSON.stringify({
-        format: "nai-workbench-backup",
-        version: projectScope ? 2 : 1,
-        exported_at: new Date().toISOString(),
-        draft,
-        images,
-        ...(projectScope ? { canvas_projects, canvas_projects_omitted: omitted,
-          canvas_projects_referenced_omitted: referencedOmitted,
-          canvas_projects_unavailable: projectsUnavailable } : {}),
-      }),
-    ],
-    { type: "application/json" },
-  );
-  return { blob, projects: projects.length, omitted, referencedOmitted, projectsUnavailable };
+  const setId = uuid().replace(/-/g, "").slice(0, 12);
+  const exportedAt = new Date().toISOString();
+  const blobs: Blob[] = [];
+  type Part = { meta: Record<string, unknown>; baseBytes: number; usedBytes: number; decodedBytes: number;
+    images: string[]; canvasProjects: string[] };
+  function newPart(): Part {
+    const first = blobs.length === 0;
+    const meta = {
+      format: "nai-workbench-backup", version: projectScope ? 2 : 1,
+      exported_at: exportedAt, backup_set_id: setId, backup_part_index: blobs.length + 1,
+      ...(first ? { draft } : {}),
+      ...(first && projectScope ? { canvas_projects_omitted: omitted,
+        canvas_projects_referenced_omitted: referencedOmitted,
+        canvas_projects_unavailable: projectsUnavailable } : {}),
+    };
+    const baseBytes = new Blob([JSON.stringify(meta), ',"images":[],"canvas_projects":[]']).size;
+    if (baseBytes > MAX_BACKUP_PART_FILE_BYTES)
+      throw new Error("绘图草稿过大，无法生成可导入的备份。请先缩小草稿中的参考图。");
+    return { meta, baseBytes, usedBytes: baseBytes, decodedBytes: 0, images: [], canvasProjects: [] };
+  }
+  function finish(part: Part) {
+    const json = `${JSON.stringify(part.meta).slice(0, -1)},"images":[${part.images.join(",")}],` +
+      `"canvas_projects":[${part.canvasProjects.join(",")}]}`;
+    const blob = new Blob([json], { type: "application/json" });
+    if (blob.size > MAX_BACKUP_PART_FILE_BYTES) throw new Error("备份分卷超过大小上限，导出已取消。");
+    blobs.push(blob);
+  }
+  let part = newPart();
+  function add(serialized: string, decodedBytes: number, kind: "image" | "project") {
+    const itemBytes = new Blob([serialized]).size + 1;
+    if (part.usedBytes + itemBytes > MAX_BACKUP_PART_FILE_BYTES ||
+      part.decodedBytes + decodedBytes > MAX_BACKUP_PART_DECODED_BYTES ||
+      (kind === "image" && part.images.length >= MAX_BACKUP_IMAGE_COUNT) ||
+      (kind === "project" && part.canvasProjects.length >= 128)) {
+      if (part.images.length || part.canvasProjects.length) finish(part);
+      part = newPart();
+    }
+    if (part.usedBytes + itemBytes > MAX_BACKUP_PART_FILE_BYTES ||
+      part.decodedBytes + decodedBytes > MAX_BACKUP_PART_DECODED_BYTES)
+      throw new Error("有单项图片或画布工程过大，无法生成可导入的备份。");
+    (kind === "image" ? part.images : part.canvasProjects).push(serialized);
+    part.usedBytes += itemBytes;
+    part.decodedBytes += decodedBytes;
+  }
+  for (const row of rows) {
+    if (row.blob.size < 1 || row.blob.size > MAX_BACKUP_IMAGE_BYTES)
+      throw new Error("图库中有图片超过 128 MiB，无法生成可导入的备份。");
+    add(JSON.stringify({ ...row, blob: undefined, base64: await blobBase64(row.blob) }), row.blob.size, "image");
+  }
+  for (const row of projects) {
+    const serialized = JSON.stringify({
+      outputHash: row.outputHash, width: row.width, height: row.height,
+      base: { type: row.base.type, base64: await blobBase64(row.base) },
+      layers: await Promise.all(row.layers.map(async layer => ({
+        id: layer.id, name: layer.name, visible: layer.visible, base64: await blobBase64(layer.blob),
+      }))),
+    });
+    add(serialized, row.base.size + row.layers.reduce((total, layer) => total + layer.blob.size, 0), "project");
+  }
+  finish(part);
+  return { blob: blobs[0], blobs, setId, projects: projects.length, omitted, referencedOmitted, projectsUnavailable };
+}
+
+export function orderBackupFiles(files: File[]) {
+  if (files.length === 1) {
+    const match = files[0].name.match(/-part-(\d+)-of-(\d+)\.json$/i);
+    if (match && Number(match[2]) > 1)
+      throw new Error("这份备份分为多卷，请一次选中全部 JSON 文件。");
+    return files;
+  }
+  if (!files.length) throw new Error("请选择备份文件。");
+  const parts = files.map(file => ({ file, match: file.name.match(/-([a-f0-9]{12})-part-(\d+)-of-(\d+)\.json$/i) }));
+  const first = parts[0].match;
+  if (!first || parts.some(({ match }) => !match || match[1] !== first[1] || match[3] !== first[3]) ||
+    Number(first[3]) !== parts.length ||
+    new Set(parts.map(({ match }) => Number(match![2]))).size !== parts.length ||
+    parts.some(({ match }) => Number(match![2]) < 1 || Number(match![2]) > parts.length))
+    throw new Error("备份分卷不完整或混入了其他备份，请一次选中同一组的全部 JSON 文件。");
+  return parts.sort((a, b) => Number(a.match![2]) - Number(b.match![2])).map(({ file }) => file);
 }
 
 const MAX_BACKUP_FILE_BYTES = 1024 * 1024 * 1024;
@@ -409,6 +461,9 @@ export async function importBackup(owner: string, file: File, projectScope?: str
   if (!backupRecord(input) || input.format !== "nai-workbench-backup" || ![1, 2].includes(input.version) ||
     !Array.isArray(input.images) || input.images.length > MAX_BACKUP_IMAGE_COUNT)
     throw new Error("这不是受支持的工作台备份，或图片数量超过 10,000 张上限。");
+  const partName = file.name.match(/-([a-f0-9]{12})-part-(\d+)-of-(\d+)\.json$/i);
+  if (partName && (input.backup_set_id !== partName[1] || input.backup_part_index !== Number(partName[2])))
+    throw new Error("备份分卷内容与文件名不匹配，导入已取消。");
 
   let draft: Draft | undefined;
   if (input.draft != null) {

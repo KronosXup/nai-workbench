@@ -45,6 +45,9 @@ QUOTE_MAX_PARSE_CONCURRENCY = 1
 QUOTE_RATE_WINDOW_SECONDS = 60
 QUOTE_GLOBAL_RATE_PER_WINDOW = 600
 QUOTE_KEY_RATE_PER_WINDOW = 180
+REQUEST_READ_TIMEOUT_SECONDS = 30
+EXECUTE_PREP_MAX_CONCURRENCY = 8
+TAG_MAX_CONCURRENCY = 8
 GATE_IDENTITY_CACHE_TTL_SECONDS = 15
 GATE_IDENTITY_FAILURE_CACHE_TTL_SECONDS = 2
 GATE_IDENTITY_CACHE_MAX_ENTRIES = 256
@@ -164,6 +167,8 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
     quote_key_events = OrderedDict()
     quote_slots = asyncio.Semaphore(QUOTE_MAX_CONCURRENCY)
     quote_parse_slots = asyncio.Semaphore(QUOTE_MAX_PARSE_CONCURRENCY)
+    execute_prep_slots = asyncio.Semaphore(EXECUTE_PREP_MAX_CONCURRENCY)
+    tag_slots = asyncio.Semaphore(TAG_MAX_CONCURRENCY)
 
     @app.middleware('http')
     async def headers(request, call_next):
@@ -306,10 +311,14 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
 
     async def task_body(request):
         raw = bytearray()
-        async for chunk in request.stream():
-            raw.extend(chunk)
-            if len(raw) > 25*1024*1024:
-                raise HTTPException(413, '请求体超过 25 MiB')
+        try:
+            async with asyncio.timeout(REQUEST_READ_TIMEOUT_SECONDS):
+                async for chunk in request.stream():
+                    if len(raw) + len(chunk) > 25*1024*1024:
+                        raise HTTPException(413, '请求体超过 25 MiB')
+                    raw.extend(chunk)
+        except TimeoutError:
+            raise HTTPException(408, '读取任务请求超时') from None
         try:
             task = validate_task(json.loads(raw), Settings())
         except (ValueError, TypeError, RecursionError, OverflowError):
@@ -324,7 +333,7 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
 
     @app.get('/api/queue-status')
     async def queue_status(request: Request):
-        credential(request)
+        await gate_username(credential(request))
         now = _queue_status_now()
         if queue_status_cache['expires_at'] > now:
             if queue_status_cache['failed']:
@@ -375,40 +384,51 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
     async def suggest_tags(request: Request):
         """Forward only the active tag fragment to Gate's existing autocomplete."""
         token = credential(request)
-        raw = bytearray()
-        async for chunk in request.stream():
-            raw.extend(chunk)
-            if len(raw) > 1024:
-                raise HTTPException(413, '标签查询过长')
+        await gate_username(token)
+        if tag_slots.locked():
+            raise HTTPException(429, '标签查询繁忙，请稍后再试', headers={'Retry-After': '1'})
+        await tag_slots.acquire()
         try:
-            body = json.loads(raw)
-            prompt, model = body['prompt'], body['model']
-        except (ValueError, TypeError, KeyError):
-            raise HTTPException(422, '标签查询参数无效') from None
-        if not isinstance(prompt, str) or not 2 <= len(prompt.strip()) <= 20 or not isinstance(model, str) or model not in {m['id'] for m in MODELS}:
-            raise HTTPException(422, '标签查询参数无效')
-        async with httpx.AsyncClient(base_url=gate_url, timeout=15, follow_redirects=False, trust_env=False, transport=transport) as client:
+            raw = bytearray()
             try:
-                response = await client.post('/ai/generate-image/suggest-tags',
-                    headers={'Authorization':'Bearer '+token}, json={'prompt':prompt.strip(),'model':model})
-            except httpx.HTTPError:
-                raise HTTPException(502, '标签服务暂时不可用') from None
-        if response.status_code != 200:
-            status = response.status_code if response.status_code in (401, 403, 429, 503) else 502
-            raise HTTPException(status, {401:'Key 无效或已更换',403:'Key 已禁用或过期',429:'标签查询过于频繁，请稍后再试',
-                503:'标签服务暂时不可用'}.get(status, '标签服务暂时不可用'))
-        if len(response.content) > 512 * 1024:
-            raise HTTPException(502, '标签结果过大')
-        try:
-            rows = response.json()['tags']
-            if not isinstance(rows, list):
-                raise ValueError('tags')
-            tags = [{'tag':row['tag'], 'count':row.get('count',0)} for row in rows[:20]
-                    if isinstance(row, dict) and isinstance(row.get('tag'), str)
-                    and 0 < len(row['tag']) <= 120 and isinstance(row.get('count',0), (int,float))]
-        except (ValueError, TypeError, KeyError):
-            raise HTTPException(502, '标签结果格式无效') from None
-        return {'tags': tags}
+                async with asyncio.timeout(REQUEST_READ_TIMEOUT_SECONDS):
+                    async for chunk in request.stream():
+                        if len(raw) + len(chunk) > 1024:
+                            raise HTTPException(413, '标签查询过长')
+                        raw.extend(chunk)
+            except TimeoutError:
+                raise HTTPException(408, '读取标签查询超时') from None
+            try:
+                body = json.loads(raw)
+                prompt, model = body['prompt'], body['model']
+            except (ValueError, TypeError, KeyError):
+                raise HTTPException(422, '标签查询参数无效') from None
+            if not isinstance(prompt, str) or not 2 <= len(prompt.strip()) <= 20 or not isinstance(model, str) or model not in {m['id'] for m in MODELS}:
+                raise HTTPException(422, '标签查询参数无效')
+            async with httpx.AsyncClient(base_url=gate_url, timeout=15, follow_redirects=False, trust_env=False, transport=transport) as client:
+                try:
+                    response = await client.post('/ai/generate-image/suggest-tags',
+                        headers={'Authorization':'Bearer '+token}, json={'prompt':prompt.strip(),'model':model})
+                except httpx.HTTPError:
+                    raise HTTPException(502, '标签服务暂时不可用') from None
+            if response.status_code != 200:
+                status = response.status_code if response.status_code in (401, 403, 429, 503) else 502
+                raise HTTPException(status, {401:'Key 无效或已更换',403:'Key 已禁用或过期',429:'标签查询过于频繁，请稍后再试',
+                    503:'标签服务暂时不可用'}.get(status, '标签服务暂时不可用'))
+            if len(response.content) > 512 * 1024:
+                raise HTTPException(502, '标签结果过大')
+            try:
+                rows = response.json()['tags']
+                if not isinstance(rows, list):
+                    raise ValueError('tags')
+                tags = [{'tag':row['tag'], 'count':row.get('count',0)} for row in rows[:20]
+                        if isinstance(row, dict) and isinstance(row.get('tag'), str)
+                        and 0 < len(row['tag']) <= 120 and isinstance(row.get('count',0), (int,float))]
+            except (ValueError, TypeError, KeyError):
+                raise HTTPException(502, '标签结果格式无效') from None
+            return {'tags': tags}
+        finally:
+            tag_slots.release()
 
     @app.post('/api/quote')
     async def quote(request: Request):
@@ -435,9 +455,6 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
     @app.post('/api/execute')
     async def execute(request: Request):
         token = credential(request)
-        # Authenticate before allocating image-processing work, without reading official quota.
-        await gate_get('/user/information', token)
-        task = await task_body(request)
         owner = hashlib.sha256(token.encode()).hexdigest()
         def busy_error():
             reason = 'key_busy' if owner in active else 'service_busy'
@@ -445,6 +462,22 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
             return dict(type='error', code='gate_busy', reason=reason, retryable=True, retry_after=15,
                         uncertain=False, message=message)
 
+        if owner in active or len(active) >= 8 or execute_prep_slots.locked():
+            return JSONResponse(busy_error(), status_code=429)
+        await execute_prep_slots.acquire()
+        try:
+            # A failed Key is cached briefly and distinct lookups are bounded.
+            # Gate checks the Key again when the actual image request arrives.
+            try:
+                await gate_username(token)
+            except HTTPException as exc:
+                if exc.status_code in (429, 503):
+                    wait = 60 if exc.status_code == 429 else 15
+                    return JSONResponse({**busy_error(), 'retry_after': wait}, status_code=429)
+                raise
+            task = await task_body(request)
+        finally:
+            execute_prep_slots.release()
         if owner in active or len(active) >= 8:
             return JSONResponse(busy_error(), status_code=429)
         async def events():

@@ -98,7 +98,8 @@ const database = {
           },
           delete(key) { deleteCount++; map.delete(key); return request(undefined); },
           get(key) { return request(map.get(key)); },
-          index() { return { getAll: () => request([...map.values()]) }; },
+          index() { return { getAll: owner => request([...map.values()].filter(row =>
+            name !== 'images' || row.owner === owner)) }; },
         };
       },
       abort() {
@@ -195,4 +196,40 @@ assert.deepEqual({ putCount, deleteCount }, beforeReadWrites, 'readDraft must no
 assert.equal(images.size, 43, 'bad persisted drafts must leave the gallery intact');
 assert.equal(transactions.at(-1).mode, 'readonly');
 
-console.log('backup validation passed: malformed imports start no transaction; malformed drafts stay untouched; 42 legacy images and one legacy Vibe JSON result import; unknown fields survive.');
+// A library beyond the single-file import count must round-trip as a complete
+// set of independently importable backup parts.
+for (let index = 0; index < 10_001; index++) {
+  const { base64: _base64, ...row } = imageRow(index);
+  images.set(`large-owner:${row.id}`, { ...row, owner: 'large-owner', key: `large-owner:${row.id}`,
+    blob: new Blob([png], { type: 'image/png' }) });
+}
+globalThis.FileReader = class {
+  readAsDataURL(blob) {
+    blob.arrayBuffer().then(bytes => {
+      this.result = `data:${blob.type};base64,${Buffer.from(bytes).toString('base64')}`;
+      this.onload?.();
+    }, error => { this.error = error; this.onerror?.(); });
+  }
+};
+const large = await storage.exportBackup('large-owner', oldDraft());
+assert.equal(large.blobs.length, 2);
+const filenames = large.blobs.map((blob, index) => new File([blob],
+  `nai-workbench-test-${large.setId}-part-${String(index + 1).padStart(2, '0')}-of-02.json`,
+  { type: 'application/json' }));
+await assert.rejects(Promise.resolve().then(() => storage.orderBackupFiles([filenames[0]])), /一次选中全部/);
+const ordered = storage.orderBackupFiles([...filenames].reverse());
+assert.deepEqual(ordered.map(file => file.name), filenames.map(file => file.name));
+let exportedCount = 0;
+for (const [index, file] of ordered.entries()) {
+  const parsed = JSON.parse(await file.text());
+  assert.ok(file.size <= 256 * 1024 * 1024);
+  assert.ok(parsed.images.length <= 10_000);
+  assert.equal(Boolean(parsed.draft), index === 0);
+  exportedCount += parsed.images.length;
+  const restoredPart = await storage.importBackup('restored-many', file);
+  assert.equal(restoredPart.count, parsed.images.length);
+}
+assert.equal(exportedCount, 10_001);
+assert.equal([...images.keys()].filter(key => key.startsWith('restored-many:')).length, 10_001);
+
+console.log('backup validation passed: malformed imports untouched; legacy image and Vibe backups import; unknown fields survive; 10,001 images split and round-trip.');

@@ -64,6 +64,174 @@ def test_quote_rejects_fake_bearer_before_parsing_large_image(monkeypatch):
     asyncio.run(run())
 
 
+def test_execute_rejects_repeated_bad_key_without_repeated_gate_lookups():
+    calls = []
+
+    async def run():
+        app = create_app('http://gate.fixture', httpx.MockTransport(lambda request: identity_response(request, calls)))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://workbench') as client:
+            for _ in range(3):
+                response = await client.post('/api/execute', headers={'Authorization': 'Bearer fake'}, json=quote_task())
+                assert response.status_code == 401
+            assert calls == [('/user/information', 'Bearer fake')]
+
+    asyncio.run(run())
+
+
+def test_execute_identity_admission_is_retryable_before_generation(monkeypatch):
+    monkeypatch.setattr(gate_bridge, 'GATE_IDENTITY_LOOKUP_RATE_PER_WINDOW', 1)
+    submitted = []
+
+    class Adapter:
+        def __init__(self, settings, *, gate_mode):
+            pass
+
+        async def execute(self, item, on_preview):
+            submitted.append(item)
+            return [Artifact(b'offline fixture')]
+
+        async def close(self):
+            pass
+
+    def gate(request):
+        assert request.url.path == '/user/information'
+        return httpx.Response(200, json={'username': 'fixture'})
+
+    async def run():
+        app = create_app('http://gate.fixture', httpx.MockTransport(gate), Adapter)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://workbench') as client:
+            first = await client.post('/api/execute', headers={'Authorization': 'Bearer A'}, json=quote_task())
+            assert first.status_code == 200
+            second = await client.post('/api/execute', headers={'Authorization': 'Bearer B'}, json=quote_task())
+            assert second.status_code == 429
+            assert second.json()['code'] == 'gate_busy' and second.json()['retryable']
+            assert second.json()['retry_after'] == 60 and not second.json()['uncertain']
+            assert len(submitted) == 1
+
+    asyncio.run(run())
+
+
+def test_queue_status_needs_a_valid_key_even_when_snapshot_is_cached():
+    calls = []
+
+    def gate(request):
+        calls.append(request.url.path)
+        if request.url.path == '/user/information':
+            if request.headers.get('authorization') == 'Bearer valid':
+                return httpx.Response(200, json={'username': 'fixture'})
+            return httpx.Response(401)
+        if request.url.path == '/queue-status':
+            return httpx.Response(200, json={'global': {'active': 1, 'waiting': 0, 'concurrency': 8},
+                                              'image_cooldown_remaining': 0})
+        raise AssertionError(request.url.path)
+
+    async def run():
+        app = create_app('http://gate.fixture', httpx.MockTransport(gate))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://workbench') as client:
+            assert (await client.get('/api/queue-status', headers={'Authorization': 'Bearer valid'})).status_code == 200
+            assert (await client.get('/api/queue-status', headers={'Authorization': 'Bearer fake'})).status_code == 401
+            assert calls == ['/user/information', '/queue-status', '/user/information']
+
+    asyncio.run(run())
+
+
+def test_execute_body_timeout_releases_slot_and_does_not_submit(monkeypatch):
+    monkeypatch.setattr(gate_bridge, 'REQUEST_READ_TIMEOUT_SECONDS', 0.02)
+    monkeypatch.setattr(gate_bridge, 'EXECUTE_PREP_MAX_CONCURRENCY', 1)
+    submitted = []
+
+    class Adapter:
+        def __init__(self, settings, *, gate_mode):
+            pass
+
+        async def execute(self, item, on_preview):
+            submitted.append(item)
+            return [Artifact(b'offline fixture')]
+
+        async def close(self):
+            pass
+
+    async def run():
+        app = create_app('http://gate.fixture', httpx.MockTransport(lambda request: identity_response(request, [])), Adapter)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://workbench') as client:
+            headers = {'Authorization': 'Bearer valid'}
+            entered = asyncio.Event()
+            raw = json.dumps(quote_task()).encode()
+
+            async def stalled_body():
+                yield raw[:8]
+                entered.set()
+                await asyncio.sleep(0.08)
+                yield raw[8:]
+
+            pending = asyncio.create_task(client.post('/api/execute', headers=headers, content=stalled_body(), timeout=None))
+            await asyncio.wait_for(entered.wait(), 2)
+            busy = await client.post('/api/execute', headers=headers, json=quote_task())
+            assert busy.status_code == 429 and busy.json()['code'] == 'gate_busy'
+            assert busy.json()['retryable'] and not busy.json()['uncertain']
+            assert (await pending).status_code == 408
+            assert not submitted
+            assert (await client.post('/api/execute', headers=headers, json=quote_task())).status_code == 200
+            assert len(submitted) == 1
+
+    asyncio.run(run())
+
+
+def test_tag_body_timeout_releases_slot_without_calling_tag_service(monkeypatch):
+    monkeypatch.setattr(gate_bridge, 'REQUEST_READ_TIMEOUT_SECONDS', 0.02)
+    monkeypatch.setattr(gate_bridge, 'TAG_MAX_CONCURRENCY', 1)
+    calls = []
+
+    def gate(request):
+        calls.append(request.url.path)
+        if request.url.path == '/user/information':
+            return httpx.Response(200, json={'username': 'fixture'})
+        if request.url.path == '/ai/generate-image/suggest-tags':
+            return httpx.Response(200, json={'tags': []})
+        raise AssertionError(request.url.path)
+
+    async def run():
+        app = create_app('http://gate.fixture', httpx.MockTransport(gate))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://workbench') as client:
+            headers = {'Authorization': 'Bearer valid'}
+            entered = asyncio.Event()
+            raw = json.dumps({'prompt': 'blue', 'model': 'nai-diffusion-5-full'}).encode()
+
+            async def stalled_body():
+                yield raw[:8]
+                entered.set()
+                await asyncio.sleep(0.08)
+                yield raw[8:]
+
+            pending = asyncio.create_task(client.post('/api/suggest-tags', headers=headers, content=stalled_body(), timeout=None))
+            await asyncio.wait_for(entered.wait(), 2)
+            assert (await client.post('/api/suggest-tags', headers=headers,
+                json={'prompt': 'blue', 'model': 'nai-diffusion-5-full'})).status_code == 429
+            assert (await pending).status_code == 408
+            assert calls == ['/user/information']
+            assert (await client.post('/api/suggest-tags', headers=headers,
+                json={'prompt': 'blue', 'model': 'nai-diffusion-5-full'})).status_code == 200
+            assert calls == ['/user/information', '/ai/generate-image/suggest-tags']
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('value', ['false', 0, 1, None, []])
+def test_nonboolean_stream_parameter_is_rejected_before_quote_or_execute(value):
+    async def run():
+        calls = []
+        app = create_app('http://gate.fixture', httpx.MockTransport(lambda request: identity_response(request, calls)))
+        item = quote_task()
+        item['parameters']['stream'] = value
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://workbench') as client:
+            headers = {'Authorization': 'Bearer valid'}
+            assert (await client.post('/api/quote', headers=headers, json=item)).status_code == 422
+            assert (await client.post('/api/execute', headers=headers, json=item)).status_code == 422
+            assert calls == [('/user/information', 'Bearer valid')]
+
+    asyncio.run(run())
+
+
 def test_gate_identity_cache_is_key_scoped_shared_with_me_and_expires(monkeypatch):
     now = [100.0]
     calls = []
@@ -116,12 +284,12 @@ def test_gate_identity_cache_is_key_scoped_shared_with_me_and_expires(monkeypatc
                 'Bearer A', 'Bearer B', 'Bearer A',
             ]
 
-            # A valid quote cache must not authorize formal execution. Execute
-            # still performs its own live Gate identity check on every request.
+            # Execute reuses a recent identity check. Gate still checks the Key
+            # on the actual image request, including after revocation.
             executed = await client.post('/api/execute', headers=headers_a, json=quote_task())
             assert executed.status_code == 200
             assert [token for path, token in calls if path == '/user/information'] == [
-                'Bearer A', 'Bearer B', 'Bearer A', 'Bearer A',
+                'Bearer A', 'Bearer B', 'Bearer A',
             ]
             assert [token for path, token in calls if path == '/user/subscription'] == ['Bearer A']
 
@@ -355,4 +523,3 @@ def test_quote_frequency_limits_are_bounded_per_key_and_globally(monkeypatch):
 
 def test_quote_uses_existing_25_mib_input_ceiling():
     assert gate_bridge.QUOTE_MAX_BODY_BYTES == 25 * 1024 * 1024
-
