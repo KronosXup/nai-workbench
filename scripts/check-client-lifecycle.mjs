@@ -178,6 +178,16 @@ function harness() {
 }
 
 const checks = [
+  ['The streaming setting controls the next request without changing earlier task snapshots', async () => {
+    const h = quoteHarness();
+    const previous = h.fn('taskFor')();
+    h.fn('setParam')('stream', true);
+    const streaming = h.fn('taskFor')();
+    h.fn('setParam')('stream', false);
+    assert.equal(previous.parameters.stream, false);
+    assert.equal(streaming.parameters.stream, true);
+    assert.equal(h.fn('taskFor')().parameters.stream, false);
+  }],
   ['An unfinished Director upload cannot overwrite another account or a page left by the user', async () => {
     for (const leave of ['account','page','new-file']) {
       const h=harness(); let finish, calls=0;

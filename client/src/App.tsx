@@ -796,6 +796,7 @@ export default function App() {
   ): Task {
     const effectiveModel = effectiveModelForOperation(draft.model, operation);
     const p = generationParameters(effectiveModel, draft.parameters);
+    p.stream = draft.parameters.stream === true;
     const rawVibeFiles=draft.parameters.vibe_files;
     const vibeFiles=Array.isArray(rawVibeFiles)?rawVibeFiles:[];
     p.n_samples = 1;
@@ -1918,8 +1919,8 @@ export default function App() {
               <div className="page-title">
                 <div>
                   <small>工作台设置</small>
-                  <h1>连接与保存</h1>
-                  <p>访问、暂存和本机备份，在这里管理。</p>
+                  <h1>设置</h1>
+                  <p>连接、绘图偏好与本机备份。</p>
                 </div>
               </div>
               <div className="settings-grid">
@@ -1955,6 +1956,35 @@ export default function App() {
                   <p className="muted small">
                     口令只保留到当前标签页会话结束。
                   </p>
+                </section>
+                <section>
+                  <div className="settings-heading">
+                    <SlidersHorizontal size={19} />
+                    <h2>绘图与输入</h2>
+                  </div>
+                  <label className="setting-toggle">
+                    <input
+                      type="checkbox"
+                      checked={draft.parameters.stream === true}
+                      onChange={(e) => setParam("stream", e.target.checked)}
+                    />
+                    <span>
+                      <b>生成中流式预览</b>
+                      <small>开启后请求生成过程的预览；关闭后只在完成时显示图片。</small>
+                    </span>
+                  </label>
+                  <label className="setting-toggle">
+                    <input
+                      type="checkbox"
+                      checked={draft.tagSuggestionsDisabled !== true}
+                      onChange={(e) => patchDraft({ tagSuggestionsDisabled: !e.target.checked })}
+                    />
+                    <span>
+                      <b>提示词标签建议</b>
+                      <small>输入提示词时查询标签；关闭后不再发送这类查询。</small>
+                    </span>
+                  </label>
+                  <p className="muted small">这些选项随当前 Key 的本机草稿保存，对新任务生效。</p>
                 </section>
                 <section>
                   <div className="settings-heading">

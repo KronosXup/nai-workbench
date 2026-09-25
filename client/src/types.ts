@@ -19,6 +19,7 @@ export type Parameters = {
   scale: number;
   seed: number;
   sampler: string;
+  stream?: boolean;
   n_samples: number;
   strength: number;
   noise: number;

@@ -576,14 +576,6 @@ export default function OfficialWorkspace(p: Props) {
                 </select>
               </label>
               <AdvancedSettings model={effectiveModel} params={params} patch={changes => p.patch({parameters:{...params,...changes}})}/>
-              <label className="nai-stream">
-                <input
-                  type="checkbox"
-                  checked={params.stream === true}
-                  onChange={(e) => p.setParam("stream", e.target.checked)}
-                />
-                流式预览
-              </label>
             </div>
           )}
           {generation && <div className="nai-parameter-summary">
