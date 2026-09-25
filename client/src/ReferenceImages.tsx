@@ -43,6 +43,7 @@ function SliderField({
   label,
   ariaLabel = label,
   step = 0.01,
+  min = 0,
   value,
   onChange,
   disabled = false,
@@ -51,6 +52,7 @@ function SliderField({
   label: string;
   ariaLabel?: string;
   step?: number;
+  min?: number;
   value: number;
   onChange: (value: number) => void;
   disabled?: boolean;
@@ -65,7 +67,7 @@ function SliderField({
           className="nai-ri-number"
           type="number"
           aria-label={ariaLabel}
-          min={0}
+          min={min}
           max={1}
           step={step}
           value={safeValue}
@@ -76,7 +78,7 @@ function SliderField({
           className="nai-ri-range"
           type="range"
           aria-label={`${ariaLabel}滑杆`}
-          min={0}
+          min={min}
           max={1}
           step={step}
           value={safeValue}
@@ -151,7 +153,9 @@ export default function ReferenceImages({
   }, [openMenu]);
 
   const updateStrength = (value: number) =>
-    patch({ parameters: { ...params, strength: clamp01(value) } });
+    patch({ parameters: draft.operation === "inpaint"
+      ? { ...params, img2img: { strength: Math.max(0.01, clamp01(value)), color_correct: true } }
+      : { ...params, strength: clamp01(value) } });
   const updateNoise = (value: number) =>
     patch({ parameters: { ...params, noise: clamp01(value) } });
 
@@ -316,8 +320,11 @@ export default function ReferenceImages({
               </div>
             )}
             {draft.operation !== "upscale" ? <div className={`nai-ri-source-parameters${!sourceActive ? " is-disabled" : ""}`}>
-              <SliderField label="变化强度" value={params.strength} onChange={updateStrength} disabled={!sourceActive} />
-              <SliderField label="噪声" value={params.noise} onChange={updateNoise} disabled={!sourceActive} />
+              <SliderField label={draft.operation === "inpaint" ? "重绘强度" : "变化强度"}
+                value={draft.operation === "inpaint" ? params.img2img?.strength ?? 1 : params.strength}
+                min={draft.operation === "inpaint" ? 0.01 : 0}
+                onChange={updateStrength} disabled={!sourceActive} />
+              {draft.operation !== "inpaint" && <SliderField label="噪声" value={params.noise} onChange={updateNoise} disabled={!sourceActive} />}
             </div> : <p className="nai-ri-upscale-info">放大倍数 <b>2 倍</b></p>}
             {openMenu === "source" && (
               <SourceImageMenu id={sourceMenuId} anchor={sourceMenuTrigger} onClose={closeMenu}>

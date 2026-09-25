@@ -807,6 +807,7 @@ export default function App() {
     delete p.vibe_source_images;
     delete p.vibe_pending_indices;
     if(operation !== 'inpaint')delete p.mask;
+    if(operation !== 'inpaint')delete p.img2img;
     if(operation === 'generate')delete p.image;
     if(!['generate','img2img','inpaint'].includes(operation)) {
       p.character_prompts=[];p.reference_image_multiple=[];p.reference_strength_multiple=[];p.reference_information_extracted_multiple=[];

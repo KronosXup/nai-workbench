@@ -69,11 +69,13 @@ FIXED_FILES = (
     "server/app/config.py",
     "server/app/database.py",
     "server/app/gate_bridge.py",
+    "server/app/inpaint.py",
     "server/app/model_policy.py",
     "server/app/service.py",
     "server/tests/conftest.py",
     "server/tests/test_bridge_security.py",
     "server/tests/test_gate_bridge.py",
+    "server/tests/test_inpaint.py",
     "server/adapter_tests/test_adapters.py",
 )
 CLIENT_SOURCE_SUFFIXES = {".css", ".ts", ".tsx"}

@@ -25,6 +25,7 @@ from typing import Any
 
 import httpx
 from PIL import Image, ImageDraw, PngImagePlugin
+from .inpaint import composite_result, normalize_source, prepare_mask
 from .model_policy import request_model_for_operation
 
 
@@ -256,7 +257,28 @@ def build_request(job: dict) -> tuple[str, dict, bool]:
     if operation == "inpaint":
         if not params.get("mask"):
             raise AdapterError("mask_required", "局部重绘需要蒙版")
-        validate_input_image(params["mask"])
+        source_data = validate_input_image(params["image"])
+        mask_data = validate_input_image(params["mask"])
+        try:
+            params["mask"] = base64.b64encode(prepare_mask(
+                source_data, mask_data, params["width"], params["height"]
+            )).decode("ascii")
+            params["image"] = base64.b64encode(normalize_source(
+                source_data, params["width"], params["height"]
+            )).decode("ascii")
+        except ValueError as exc:
+            raise AdapterError("invalid_mask", str(exc)) from exc
+        inpaint = params.pop("img2img", None)
+        if inpaint is not None and not isinstance(inpaint, dict):
+            raise AdapterError("invalid_strength", "局部重绘强度无效")
+        strength = inpaint.get("strength", 1) if inpaint is not None else 1
+        if (type(strength) not in (int, float) or not math.isfinite(strength)
+                or not 0.01 <= strength <= 1):
+            raise AdapterError("invalid_strength", "局部重绘强度应在 0.01 到 1 之间")
+        if strength != 1:
+            params["img2img"] = {"strength": strength, "color_correct": True}
+        # Inpaint results contain a generated patch. The source is blended back below.
+        params["add_original_image"] = False
         model = request_model_for_operation(model, operation)
     characters = params.pop("character_prompts", [])
     map_precise_references(params, model)
@@ -268,7 +290,10 @@ def build_request(job: dict) -> tuple[str, dict, bool]:
     params["negative_prompt"] = negative
     params["uc"] = negative
     params.setdefault("noise_schedule", "karras")
-    params.setdefault("params_version", 3 if operation != "inpaint" else 4)
+    if operation == "inpaint":
+        params["params_version"] = 4
+    else:
+        params.setdefault("params_version", 3)
     if "diffusion-4" in model or "diffusion-5" in model:
         coords = bool(params.get("use_coords", False))
         caps, uc_caps = [], []
@@ -306,6 +331,31 @@ class NaiAdapter:
         if not self.settings.nai_token:
             raise AdapterError("not_configured", "部署者尚未配置 NAI 连接")
         path, body, use_stream = build_request(job)
+        inpaint_source = decode_base64(body["parameters"]["image"]) if job["operation"] == "inpaint" else None
+        inpaint_mask = decode_base64(body["parameters"]["mask"]) if inpaint_source else None
+
+        def finish_images(artifacts: list[Artifact]) -> list[Artifact]:
+            if inpaint_source is None or inpaint_mask is None:
+                return artifacts
+            finished = []
+            for artifact in artifacts:
+                try:
+                    data = composite_result(inpaint_source, inpaint_mask, artifact.data)
+                except ValueError as exc:
+                    raise AdapterError("invalid_inpaint_result", str(exc), uncertain=True) from exc
+                finished.append(image_artifact(data, artifact.filename))
+            return finished
+
+        async def preview_image(value: dict):
+            if inpaint_source is not None and inpaint_mask is not None:
+                try:
+                    data = composite_result(inpaint_source, inpaint_mask, decode_base64(value["image"]), preview=True)
+                except ValueError:
+                    return  # Some intermediate frames have a smaller size.
+                value = {**value, "image": base64.b64encode(data).decode("ascii"), "media_type": "image/png"}
+            if on_preview:
+                await on_preview(value)
+
         try:
             async with self.client.stream("POST", path, json=body) as response:
                 if response.status_code not in {200, 201}:
@@ -334,7 +384,7 @@ class NaiAdapter:
                         message = "Gate 拒绝了本次请求，请核对额度或稍后再试"
                     raise AdapterError(f"upstream_{status}", message, uncertain=status >= 500, retry_after=retry_after)
                 if "text/event-stream" in response.headers.get("content-type", ""):
-                    return await self._read_stream(response, on_preview)
+                    return finish_images(await self._read_stream(response, preview_image if on_preview else None))
                 parts, size = [], 0
                 async for chunk in response.aiter_bytes():
                     size += len(chunk)
@@ -361,8 +411,8 @@ class NaiAdapter:
                         raise AdapterError("invalid_result", "NAI 返回的结果不完整", uncertain=True) from exc
                     if not isinstance(payload, dict) or payload.get("error") or payload.get("final") is not True or not payload.get("image"):
                         raise AdapterError("missing_final", "NAI 未返回明确的完整最终图片", uncertain=True)
-                    return unpack_images(decode_base64(payload["image"]))
-                return unpack_images(data)
+                    return finish_images(unpack_images(decode_base64(payload["image"])))
+                return finish_images(unpack_images(data))
         except AdapterError:
             raise
         except httpx.ConnectError as exc:
@@ -389,7 +439,7 @@ class NaiAdapter:
                 raise AdapterError("invalid_stream", "NAI 流式结果不完整", uncertain=True) from exc
             if not isinstance(payload, dict):
                 raise AdapterError("invalid_stream", "NAI 流式结果格式无效", uncertain=True)
-            kind = event_name or payload.get("event_type") or payload.get("event")
+            kind = (payload.get("event_type") or payload.get("event")) if event_name in {"", "message"} else event_name
             if kind == "error" or payload.get("error"):
                 raise AdapterError("stream_error", "NAI 流式任务返回错误", uncertain=True)
             value = payload.get("image") or payload.get("document") or payload.get("b64")

@@ -21,12 +21,17 @@ def test_bridge_honors_stream_choice_through_gate_route_and_final_delivery():
     import hashlib
     import io
     import zipfile
-    from PIL import Image
+    from PIL import Image, ImageDraw
 
     image = io.BytesIO()
     Image.new('RGB', (64, 64), 'navy').save(image, format='PNG')
     png = image.getvalue()
     encoded = base64.b64encode(png).decode()
+    mask_image = Image.new('RGB', (64, 64), 'black')
+    ImageDraw.Draw(mask_image).rectangle((24, 24, 40, 40), fill='white')
+    mask_file = io.BytesIO()
+    mask_image.save(mask_file, format='PNG')
+    mask_encoded = base64.b64encode(mask_file.getvalue()).decode()
     archive = io.BytesIO()
     with zipfile.ZipFile(archive, 'w') as output:
         output.writestr('image.png', png)
@@ -59,7 +64,7 @@ def test_bridge_honors_stream_choice_through_gate_route_and_final_delivery():
                     if operation != 'generate':
                         body['parameters']['image'] = encoded
                     if operation == 'inpaint':
-                        body['parameters']['mask'] = encoded
+                        body['parameters']['mask'] = mask_encoded
                     if choice is not None:
                         body['parameters']['stream'] = choice
                     response = await client.post('/api/execute', headers={'Authorization': 'Bearer fixture'}, json=body)
@@ -69,8 +74,13 @@ def test_bridge_honors_stream_choice_through_gate_route_and_final_delivery():
                     assert paths[-1] == ('/ai/generate-image-stream' if streaming else '/ai/generate-image')
                     assert [event['type'] for event in events] == (['preview', 'final'] if streaming else ['final'])
                     artifact = events[-1]['artifacts'][0]
-                    assert base64.b64decode(artifact['data']) == png
-                    assert artifact['sha256'] == hashlib.sha256(png).hexdigest()
+                    data = base64.b64decode(artifact['data'])
+                    if operation == 'inpaint':
+                        with Image.open(io.BytesIO(data)) as output:
+                            assert output.convert('RGB').getpixel((0, 0)) == (0, 0, 128)
+                    else:
+                        assert data == png
+                    assert artifact['sha256'] == hashlib.sha256(data).hexdigest()
             assert len(paths) == 9
     asyncio.run(run())
 
@@ -171,11 +181,14 @@ def test_v5_curated_inpaint_maps_request_and_uses_v45_quote_classification():
     from app.adapters import build_request
 
     image = io.BytesIO()
-    Image.new('RGB', (64, 64), 'navy').save(image, format='PNG')
+    Image.new('RGB', (256, 256), 'navy').save(image, format='PNG')
     encoded = base64.b64encode(image.getvalue()).decode()
+    mask = io.BytesIO()
+    Image.new('RGB', (256, 256), 'white').save(mask, format='PNG')
+    mask_encoded = base64.b64encode(mask.getvalue()).decode()
     item = task('nai-diffusion-5-curated')
     item['operation'] = 'inpaint'
-    item['parameters'].update(image=encoded, mask=encoded, width=256, height=256, steps=29,
+    item['parameters'].update(image=encoded, mask=mask_encoded, width=256, height=256, steps=29,
                               img2img={'strength': .2})
     quote = estimate(item)
     assert (quote['units'], quote['generation_units'], quote['unit_label']) == (2, 2, '积分')

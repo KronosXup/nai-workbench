@@ -23,6 +23,7 @@ export type Parameters = {
   n_samples: number;
   strength: number;
   noise: number;
+  img2img?: { strength: number; color_correct?: boolean };
   character_prompts: CharacterPrompt[];
   image?: string;
   mask?: string;

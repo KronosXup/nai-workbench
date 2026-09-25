@@ -74,6 +74,14 @@ export async function validateParameters(value: unknown, path: string): Promise<
     if (!own(parameters, key)) fail(`${path}.${key}`);
     requireFinite(parameters[key], `${path}.${key}`);
   }
+  if (parameters.img2img !== undefined) {
+    const img2img = requireRecord(parameters.img2img, `${path}.img2img`);
+    requireFinite(img2img.strength, `${path}.img2img.strength`);
+    if ((img2img.strength as number) < 0.01 || (img2img.strength as number) > 1)
+      fail(`${path}.img2img.strength`);
+    if (img2img.color_correct !== undefined && typeof img2img.color_correct !== "boolean")
+      fail(`${path}.img2img.color_correct`);
+  }
   if (!own(parameters, "sampler")) fail(`${path}.sampler`);
   requireString(parameters.sampler, `${path}.sampler`, true);
 

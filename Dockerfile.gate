@@ -18,7 +18,7 @@ WORKDIR /workbench
 COPY server/requirements.lock.txt ./server/requirements.lock.txt
 RUN python -m pip install --no-cache-dir -r server/requirements.lock.txt
 # Copy the Gate entrypoint and its imports.
-COPY server/app/__init__.py server/app/gate_bridge.py server/app/adapters.py server/app/config.py server/app/model_policy.py server/app/service.py server/app/database.py ./server/app/
+COPY server/app/__init__.py server/app/gate_bridge.py server/app/adapters.py server/app/inpaint.py server/app/config.py server/app/model_policy.py server/app/service.py server/app/database.py ./server/app/
 COPY --from=frontend /build/client/dist/ ./client/dist/
 COPY LICENSE ./client/dist/LICENSE
 COPY THIRD_PARTY_NOTICES.md ./client/dist/THIRD_PARTY_NOTICES.md
