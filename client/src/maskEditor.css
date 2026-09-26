@@ -1,0 +1,448 @@
+.mask-editor-backdrop {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: block;
+  padding: 0;
+  overflow: hidden;
+  color: #f0f1f8;
+  background: #090b19;
+  backdrop-filter: none;
+}
+
+.mask-editor {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: #0c0e1d;
+  color: #f0f1f8;
+  outline: none;
+}
+
+.mask-editor-topbar {
+  position: absolute;
+  z-index: 3;
+  inset: 16px 18px auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  pointer-events: none;
+}
+
+.mask-editor .mask-editor-settings {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  width: 255px;
+  align-items: center;
+  gap: 6px 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #30334c;
+  border-radius: 6px;
+  background: #111426ed;
+  box-shadow: none;
+  pointer-events: auto;
+}
+
+.mask-editor .mask-editor-settings h2 {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
+  color: #f4f4fa;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.mask-editor .mask-editor-size {
+  grid-column: 2;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: auto 42px 14px minmax(42px, 1fr);
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  color: #c3c5d4;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.mask-editor .mask-editor-size input[type="number"] {
+  width: 42px;
+  min-width: 42px;
+  height: 26px;
+  min-height: 26px;
+  padding: 3px 5px;
+  border: 1px solid #3c405d;
+  border-radius: 4px;
+  color: #f5f5fb;
+  background: #1b1e33;
+  box-shadow: none;
+  font-family: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.mask-editor .mask-editor-size > span:nth-of-type(2) {
+  color: #85899f;
+  font-size: 10px;
+}
+
+.mask-editor .mask-editor-size input[type="range"] {
+  width: 100%;
+  min-width: 42px;
+  margin: 0;
+  accent-color: #e9e5a7;
+  cursor: pointer;
+}
+
+.mask-editor .mask-editor-square {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: start;
+  min-height: 29px;
+  gap: 7px;
+  padding: 5px 8px;
+  border: 1px solid #383c58;
+  border-radius: 4px;
+  color: #c9cada;
+  background: #1b1e33;
+  box-shadow: none;
+  font-size: 11px;
+}
+
+.mask-editor .mask-editor-square[aria-pressed="true"] {
+  border-color: #a39e63;
+  color: #202237;
+  background: #e7e2a7;
+}
+
+.mask-editor .mask-editor-square-icon {
+  width: 10px;
+  height: 10px;
+  border: 1px solid currentColor;
+  background: currentColor;
+}
+
+.mask-editor .mask-editor-save-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.mask-editor .mask-editor-save,
+.mask-editor .mask-editor-close {
+  min-height: 38px;
+  border: 1px solid #3a3e59;
+  border-radius: 5px;
+  color: #f2f3f8;
+  background: #171a2d;
+  box-shadow: none;
+  font-size: 12px;
+}
+
+.mask-editor .mask-editor-save {
+  gap: 8px;
+  padding: 8px 13px;
+  border-color: #d5d19c;
+  color: #202237;
+  background: #f1eeb8;
+  font-weight: 600;
+}
+
+.mask-editor .mask-editor-save:hover:not(:disabled) {
+  border-color: #e4dfa3;
+  color: #17192c;
+  background: #faf6cc;
+}
+
+.mask-editor .mask-editor-close:hover:not(:disabled) {
+  border-color: #666b8a;
+  color: #fff;
+  background: #252943;
+}
+
+.mask-editor .mask-editor-close {
+  width: 38px;
+  min-width: 38px;
+  padding: 5px;
+}
+
+.mask-editor .mask-editor-stage {
+  position: relative;
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  place-items: center;
+  overflow: hidden;
+  padding: 74px 24px 76px;
+  background: #090b19;
+}
+
+.mask-editor .mask-editor-image-wrap {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  line-height: 0;
+}
+
+.mask-editor .mask-editor-image-wrap > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.mask-editor .mask-editor-overlay {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  mix-blend-mode: normal;
+  opacity: 1;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.mask-editor .mask-editor-hint {
+  position: absolute;
+  bottom: 70px;
+  left: 50%;
+  max-width: calc(100% - 28px);
+  padding: 6px 10px;
+  transform: translateX(-50%);
+  border: 1px solid #292d45;
+  border-radius: 4px;
+  color: #b6b9cb;
+  background: #111426d9;
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.mask-editor .mask-editor-toolbar {
+  position: absolute;
+  z-index: 4;
+  bottom: 17px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px;
+  transform: translateX(-50%);
+  border: 1px solid #373b56;
+  border-radius: 7px;
+  background: #15182beF;
+  box-shadow: none;
+}
+
+.mask-editor .mask-editor-toolbar button {
+  width: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: #b9bbcc;
+  background: transparent;
+  box-shadow: none;
+}
+
+.mask-editor .mask-editor-toolbar button:hover:not(:disabled) {
+  color: #f2f3fb;
+  background: #282c45;
+}
+
+.mask-editor .mask-editor-toolbar button.selected,
+.mask-editor .mask-editor-toolbar button[aria-pressed="true"] {
+  border-color: #b6b078;
+  color: #1d2033;
+  background: #e8e4ad;
+}
+
+.mask-editor .mask-editor-toolbar button:disabled {
+  color: #666a7f;
+  opacity: 0.5;
+}
+
+.mask-editor .mask-editor-tool-divider {
+  width: 1px;
+  height: 23px;
+  margin: 0 2px;
+  background: #393d56;
+}
+
+.mask-editor .mask-editor-mask-data {
+  position: absolute;
+  width: 0;
+  height: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.mask-editor button:focus-visible,
+.mask-editor input:focus-visible {
+  outline: 2px solid #eee9aa;
+  outline-offset: 2px;
+}
+
+@media (max-width: 700px) {
+  .mask-editor .mask-editor-topbar {
+    inset: 10px 10px auto;
+    gap: 8px;
+  }
+
+  .mask-editor .mask-editor-settings {
+    grid-template-columns: 54px minmax(0, 1fr);
+    width: min(255px, calc(100vw - 120px));
+    align-items: center;
+    gap: 6px 8px;
+    padding: 9px 10px;
+  }
+
+  .mask-editor .mask-editor-settings h2 {
+    font-size: 12px;
+  }
+
+  .mask-editor .mask-editor-size {
+    grid-template-columns: auto 40px 13px minmax(38px, 1fr);
+    width: 100%;
+    gap: 4px;
+    font-size: 10px;
+  }
+
+  .mask-editor .mask-editor-size input[type="number"] {
+    width: 40px;
+    min-width: 40px;
+  }
+
+  .mask-editor .mask-editor-size input[type="range"] {
+    min-width: 38px;
+  }
+
+  .mask-editor .mask-editor-square {
+    min-height: 27px;
+    padding: 4px 7px;
+    font-size: 10px;
+  }
+
+  .mask-editor .mask-editor-save-actions {
+    gap: 5px;
+  }
+
+  .mask-editor .mask-editor-save {
+    min-height: 34px;
+    gap: 5px;
+    padding: 6px 8px;
+    font-size: 10px;
+  }
+
+  .mask-editor .mask-editor-save svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .mask-editor .mask-editor-close {
+    width: 34px;
+    min-width: 34px;
+    min-height: 34px;
+  }
+
+  .mask-editor .mask-editor-stage {
+    padding: 154px 10px 78px;
+  }
+
+  .mask-editor .mask-editor-image-wrap > img {
+    max-width: none;
+    max-height: none;
+  }
+
+  .mask-editor .mask-editor-hint {
+    bottom: 66px;
+    font-size: 10px;
+  }
+
+  .mask-editor .mask-editor-toolbar {
+    bottom: 12px;
+    gap: 3px;
+    padding: 5px;
+  }
+
+  .mask-editor .mask-editor-toolbar button {
+    width: 34px;
+    min-width: 34px;
+    min-height: 34px;
+  }
+}
+
+@media (max-width: 420px) {
+  .mask-editor .mask-editor-settings {
+    grid-template-columns: 47px minmax(0, 1fr);
+    width: min(255px, calc(100vw - 120px));
+    gap: 6px 7px;
+  }
+
+  .mask-editor .mask-editor-size {
+    grid-template-columns: 38px 12px minmax(36px, 1fr);
+    gap: 4px;
+  }
+
+  .mask-editor .mask-editor-size > span:first-child {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .mask-editor .mask-editor-size input[type="number"] {
+    width: 38px;
+    min-width: 38px;
+  }
+
+  .mask-editor .mask-editor-size input[type="range"] {
+    min-width: 36px;
+  }
+
+  .mask-editor .mask-editor-save {
+    width: 36px;
+    min-width: 36px;
+    padding: 5px;
+    font-size: 0;
+  }
+
+  .mask-editor .mask-editor-stage {
+    padding-top: 166px;
+  }
+
+  .mask-editor .mask-editor-image-wrap > img {
+    max-width: none;
+    max-height: none;
+  }
+}

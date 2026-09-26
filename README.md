@@ -13,18 +13,20 @@
 
 ## 快速部署
 
-需要 Docker Compose v2 和一个可用的 Gate 服务，两者加入同一个 Docker 网络。
+需要 Docker Compose v2，以及从工作台容器可访问的 Gate 服务。默认使用 GitHub Container Registry 的预构建镜像；首次部署不需要本地编译前端。
+
+默认 `beta` 镜像由预发布版本标签生成，也可由维护者从 `main` 手动发布；手动发布同时提供 `sha-...` 标签。稳定版标签还会更新 `latest`。
 
 ```sh
 git clone https://github.com/KronosXup/nai-workbench.git
 cd nai-workbench
 cp .env.gate.example .env
-# 编辑 .env：填写 Gate 在 Docker 网络中的地址与网络名
-docker compose --env-file .env -f compose.gate.yaml config
-docker compose --env-file .env -f compose.gate.yaml up --build -d
+# 编辑 .env，将 WORKBENCH_GATE_URL 设为容器可访问的 Gate 地址
+docker compose --env-file .env -f compose.gate.yaml pull
+docker compose --env-file .env -f compose.gate.yaml up -d
 ```
 
-打开 `http://127.0.0.1:8787`，输入 Gate Key。首次构建需要访问 Docker 镜像仓库、npm 和 PyPI；不需要预先构建前端或准备其他项目的镜像。
+打开 `http://127.0.0.1:8787`，输入 Gate Key。工作台默认只绑定本机地址。更新时在项目目录运行上面的 `pull` 和 `up -d` 两条命令。若 Gate 在宿主机，可将地址设为 `http://host.docker.internal:<Gate端口>`；若 Gate 在另一个 Docker 容器网络，见[部署说明](docs/GATE-FRONTEND.md)。
 
 公网使用请配置 HTTPS 反向代理。网络、端口和容器设置见[部署说明](docs/GATE-FRONTEND.md)。
 

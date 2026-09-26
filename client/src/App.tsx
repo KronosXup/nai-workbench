@@ -161,6 +161,44 @@ const fallbackModels: Capabilities["models"] = [
   { id: "nai-diffusion-3", name: "NAI Diffusion V3", max_characters: 0 },
 ];
 
+function restoreDraftForSession(draft: Draft): Draft {
+  const parameters = { ...draft.parameters };
+  delete parameters.image;
+  delete parameters.mask;
+  delete parameters.source_width;
+  delete parameters.source_height;
+  parameters.reference_image_multiple = [];
+  parameters.reference_strength_multiple = [];
+  parameters.reference_information_extracted_multiple = [];
+  parameters.character_reference_images = [];
+  parameters.character_reference_descriptions = [];
+  parameters.character_reference_strengths = [];
+  parameters.character_reference_fidelities = [];
+  delete parameters.vibe_encodings;
+  delete parameters.vibe_files;
+  delete parameters.vibe_source_files;
+  delete parameters.vibe_source_images;
+  delete parameters.vibe_pending_indices;
+
+  const director = draft.director ? { ...draft.director } : undefined;
+  if (director) {
+    delete director.source;
+    delete director.resultId;
+  }
+
+  const operation = draft.operation !== "generate" && !parameters.image
+    ? "generate"
+    : draft.operation;
+
+  return {
+    ...draft,
+    // Every non-generate operation currently requires parameters.image.
+    operation,
+    parameters,
+    ...(director ? { director } : {}),
+  };
+}
+
 function Field({
   label,
   children,
@@ -537,9 +575,7 @@ export default function App() {
       if (seq !== generation.current) return;
       identity.current = owner;
       canvasScope.current = canvasProjectScope(owner, access.trim());
-      const restoredDraft = migrateDirectorDraft(stored ?? newDraft());
-      // Restore the tool inputs, but leave its result preview empty after reconnecting.
-      if (restoredDraft.director) restoredDraft.director.resultId = undefined;
+      const restoredDraft = restoreDraftForSession(migrateDirectorDraft(stored ?? newDraft()));
       setDraft(restoredDraft);
       if (stored?.operation === 'augment') setPage('director');
       setRows(images);

@@ -1,0 +1,11 @@
+services:
+  frontend:
+    networks:
+      - default
+      - gate
+
+networks:
+  default: {}
+  gate:
+    external: true
+    name: ${GATE_DOCKER_NETWORK:?Set GATE_DOCKER_NETWORK to the existing Gate network}

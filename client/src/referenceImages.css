@@ -110,3 +110,8 @@
   .nai-shell .nai-ri-source-actions { gap: 4px; }
   .nai-shell .nai-reference-images .nai-ri-source-actions .nai-ri-icon-action { width: 28px; padding: 4px 6px; }
 }
+
+/* The overlay is a preview only: black mask pixels disappear over the source. */
+.nai-shell .nai-ri-source-thumb > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; border-radius: inherit; }
+.nai-shell .nai-ri-source-thumb .nai-ri-mask-preview { mix-blend-mode: screen; opacity: .7; }
+.nai-shell .nai-reference-images .nai-ri-back-img2img { min-height: 20px; height: 20px; padding: 0; background: none; }

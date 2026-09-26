@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState, type ChangeEvent, type ReactNode } from "react";
-import { Download, ImagePlus, Layers2, MoreHorizontal, Paintbrush, Pencil, Plus, ScanFace, ScanLine, SquareArrowOutUpRight, SquareArrowUp, Trash2, Upload } from "lucide-react";
+import { ChevronLeft, Download, ImagePlus, Layers2, MoreHorizontal, Paintbrush, Pencil, Plus, ScanFace, ScanLine, SquareArrowOutUpRight, SquareArrowUp, Trash2, Upload } from "lucide-react";
 import type { Capabilities, Draft, Operation } from "./types";
 import NaiSelect from "./NaiSelect";
 import SourceImageMenu from "./SourceImageMenu";
@@ -242,10 +242,15 @@ export default function ReferenceImages({
       <section className={`nai-ri-card nai-ri-source-card${params.image ? " has-source" : ""}`} aria-label="图生图源图">
         <div className={`nai-ri-source-head${params.image ? " has-image" : " is-empty"}`}>
           {params.image
-            ? <img className="nai-ri-source-thumb" src={`data:image/png;base64,${params.image}`} alt="图生图源图预览" />
+            ? <span className="nai-ri-source-thumb">
+                <img src={`data:image/png;base64,${params.image}`} alt="图生图源图预览" />
+                {draft.operation === "inpaint" && params.mask && <img className="nai-ri-mask-preview" src={`data:image/png;base64,${params.mask}`} alt="重绘蒙版预览" />}
+              </span>
             : <span className="nai-ri-empty-icon"><ImagePlus size={25} /></span>}
           <div className="nai-ri-source-copy">
             <div className="nai-ri-card-title-row">
+              {draft.operation === "inpaint" && <button type="button" className="nai-ri-back-img2img" aria-label="切回图生图" title="切回图生图" disabled={!can("img2img")}
+                onClick={() => patch({operation:"img2img",parameters:{...params,mask:undefined}})}><ChevronLeft size={14}/></button>}
               <b>{sourceTitle}</b>
               {params.image && draft.operation === "generate" && <span className="nai-ri-state">未启用</span>}
               {params.image && <button
@@ -267,14 +272,15 @@ export default function ReferenceImages({
           </div>
           {params.image ? (
             <div className="nai-ri-source-actions" aria-label="源图操作">
-              <button
-                type="button"
-                className="nai-ri-compact-action"
-                disabled={!can("inpaint")}
-                title={can("inpaint") ? (draft.operation === "inpaint" ? "编辑重绘蒙版" : "局部重绘") : "当前服务未提供局部重绘"}
-                onClick={onMask}
-              ><ScanLine size={16} />{draft.operation === "inpaint" ? "重绘蒙版" : "局部重绘"}</button>
-              <button type="button" className="nai-ri-icon-action" aria-label="编辑源图" title="绘制：编辑源图" onClick={onEditSource}><Pencil size={16} /></button>
+              {draft.operation !== "inpaint" && <button
+                type="button" className="nai-ri-compact-action" disabled={!can("inpaint")}
+                title={can("inpaint") ? "局部重绘" : "当前服务未提供局部重绘"} onClick={onMask}
+              ><ScanLine size={16} />局部重绘</button>}
+              <button type="button" className="nai-ri-icon-action"
+                aria-label={draft.operation === "inpaint" ? "编辑重绘蒙版" : "编辑源图"}
+                title={draft.operation === "inpaint" ? "绘制蒙版" : "绘制：编辑源图"}
+                disabled={draft.operation === "inpaint" && !can("inpaint")}
+                onClick={draft.operation === "inpaint" ? onMask : onEditSource}><Pencil size={16} /></button>
               <button type="button" className="nai-ri-icon-action" aria-label="替换源图" title={sourceEnabledReason || "替换源图"} disabled={!sourceCanUpload} onClick={() => sourceInput.current?.click()}><SquareArrowUp size={16} /></button>
               <button
                 type="button"
@@ -313,7 +319,7 @@ export default function ReferenceImages({
                 >启用图生图</button>
               </div>
             )}
-            {draft.operation === "inpaint" && (
+            {draft.operation === "inpaint" && !params.mask && (
               <div className="nai-ri-mask-state">
                 <span>{params.mask ? "已有重绘蒙版" : "尚未设置重绘蒙版"}</span>
                 <button type="button" disabled={!can("inpaint")} onClick={onMask}>{params.mask ? "重新编辑" : "绘制蒙版"}</button>
@@ -328,6 +334,7 @@ export default function ReferenceImages({
             </div> : <p className="nai-ri-upscale-info">放大倍数 <b>2 倍</b></p>}
             {openMenu === "source" && (
               <SourceImageMenu id={sourceMenuId} anchor={sourceMenuTrigger} onClose={closeMenu}>
+                {draft.operation === "inpaint" && <button role="menuitem" type="button" onClick={() => { setOpenMenu(null); onEditSource(); }}><Pencil size={16}/>编辑源图</button>}
                 <button role="menuitem" type="button" disabled={!can("inpaint")} onClick={() => { setOpenMenu(null); sourceMenuTrigger.current?.focus(); maskInput.current?.click(); }}><Upload size={16} />上传蒙版</button>
                 <button role="menuitem" type="button" onClick={() => { setOpenMenu(null); onPixelSource(); }}><ImagePlus size={16} />本地像素整理</button>
                 {(params.mask || draft.operation === "inpaint" || draft.operation === "upscale") && (

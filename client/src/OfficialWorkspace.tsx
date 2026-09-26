@@ -279,7 +279,7 @@ export default function OfficialWorkspace(p: Props) {
           结果 {p.rows.length || ""}
         </button>
       </div>
-      <aside className="nai-sidebar">
+      <aside className={`nai-sidebar${advanced && generation ? " settings-open" : ""}`}>
         <div className="nai-scroll">
           {generation && <>
           <div className="nai-model-row">
@@ -525,58 +525,10 @@ export default function OfficialWorkspace(p: Props) {
           </section>
         </div>
         <footer className="nai-footer">
-          {advanced && generation && (
-            <div className="nai-advanced">
-              <label>
-                步数
-                {number(
-                  "完整步数",
-                  params.steps,
-                  (n) => p.setParam("steps", n),
-                  1,
-                  50,
-                )}
-              </label>
-              <label>
-                提示词引导
-                {number(
-                  "完整提示词引导",
-                  params.scale,
-                  (n) => p.setParam("scale", n),
-                  0,
-                  20,
-                  0.1,
-                )}
-              </label>
-              <label>
-                种子
-                {number(
-                  "完整种子",
-                  params.seed,
-                  (n) => p.setParam("seed", n),
-                  -1,
-                  4294967295,
-                )}
-              </label>
-              <label>
-                采样器
-                <select
-                  aria-label="采样器"
-                  value={params.sampler}
-                  onChange={(e) => selectSampler(e.target.value)}
-                >
-                  {!samplers.some(([id]) => id === params.sampler) && <option value={params.sampler}>{params.sampler}（请更换）</option>}
-                  {samplers.map(([id, name]) => (
-                    <option value={id} key={id}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <AdvancedSettings model={effectiveModel} params={params} patch={changes => p.patch({parameters:{...params,...changes}})}/>
-            </div>
-          )}
-          {generation && <div className="nai-parameter-summary">
+          {advanced && generation && <AdvancedSettings model={effectiveModel} params={params}
+            patch={changes => p.patch({parameters:{...params,...changes}})}
+            onSampler={selectSampler} onClose={() => setAdvanced(false)}/>}
+          {generation && !advanced && <div className="nai-parameter-summary">
             <label>
               步数
               {number(

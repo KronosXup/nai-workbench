@@ -1,0 +1,32 @@
+/* Expanded settings replace the summary; only this panel scrolls above Generate. */
+.nai-shell .nai-sidebar.settings-open .nai-scroll { flex: none; overflow: visible; padding-bottom: 0; }
+.nai-shell .nai-sidebar.settings-open .nai-scroll > :not(.nai-model-row) { display: none; }
+.nai-shell .nai-sidebar.settings-open .nai-model-row { margin-bottom: 10px; }
+.nai-shell .nai-sidebar.settings-open .nai-footer { display: flex; flex: 1; min-height: 0; flex-direction: column; border-top: 0; }
+.nai-shell .nai-sidebar.settings-open .nai-footer > :not(.nai-advanced) { flex-shrink: 0; }
+.nai-shell .nai-sidebar .nai-advanced { display: flex; flex: 1; flex-direction: column; gap: 18px; min-height: 0; max-height: none; overflow-y: auto; margin: 0 0 8px; padding: 12px; border-radius: 5px; }
+.nai-shell .nai-sidebar .nai-advanced label { display: grid; gap: 9px; color: var(--nai-text); font-weight: 600; }
+.nai-shell .nai-sidebar .nai-settings-heading { display: flex; flex: none; align-items: center; gap: 8px; color: var(--nai-muted); font-size: 13px; }
+.nai-shell .nai-sidebar .nai-settings-heading > span { margin-right: auto; }
+.nai-shell .nai-sidebar .nai-settings-heading button { display: grid; place-items: center; width: 28px; min-height: 28px; padding: 4px; background: none; }
+.nai-shell .nai-sidebar .nai-setting-slider { display: grid; gap: 10px; }
+.nai-shell .nai-sidebar .nai-setting-label { display: flex; justify-content: space-between; align-items: center; gap: 6px; color: var(--nai-text); font-size: 14px; font-weight: 600; }
+.nai-shell .nai-sidebar .nai-setting-controls { display: flex; align-items: center; gap: 18px; }
+.nai-shell .nai-sidebar .nai-setting-controls input[type="number"] { flex: 0 0 56px; width: 56px; height: 28px; min-height: 0; padding: 3px; border: 1px solid var(--nai-line); border-radius: 3px; background: var(--nai-card); text-align: center; font-size: 14px; font-weight: 600; appearance: textfield; }
+.nai-shell .nai-sidebar .nai-advanced input::-webkit-inner-spin-button { appearance: none; }
+.nai-shell .nai-sidebar .nai-setting-controls input[type="range"] { width: 0; flex: 1; min-width: 0; height: 28px; min-height: 0; padding: 0; margin: 0; border: 0; background: transparent; appearance: none; }
+.nai-shell .nai-sidebar .nai-setting-controls input[type="range"]::-webkit-slider-runnable-track { height: 10px; border: 1px solid var(--nai-line); border-radius: 3px; background: var(--nai-card); }
+.nai-shell .nai-sidebar .nai-setting-controls input[type="range"]::-webkit-slider-thumb { width: 16px; height: 28px; margin-top: -10px; border: 0; border-radius: 3px; background: #292c46; appearance: none; }
+.nai-shell .nai-sidebar .nai-setting-controls input[type="range"]::-moz-range-track { height: 10px; border: 1px solid var(--nai-line); border-radius: 3px; background: var(--nai-card); }
+.nai-shell .nai-sidebar .nai-setting-controls input[type="range"]::-moz-range-thumb { width: 16px; height: 28px; border: 0; border-radius: 3px; background: #292c46; }
+.nai-shell .nai-sidebar .nai-settings-pair { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0,1.1fr); gap: 12px; }
+.nai-shell .nai-sidebar .nai-settings-seed { display: flex; min-width: 0; }
+.nai-shell .nai-sidebar .nai-settings-seed input { width: 0; flex: 1; padding: 6px; background: var(--nai-card); font-size: 14px; }
+.nai-shell .nai-sidebar .nai-settings-seed button { padding: 5px; background: none; }
+.nai-shell .nai-sidebar .nai-advanced .nai-select__trigger { width: 100%; height: 36px; min-height: 36px; padding: 7px 9px; font-size: 14px; }
+.nai-shell .nai-sidebar .nai-more-settings { display: flex; align-items: center; gap: 6px; align-self: flex-start; padding: 0; min-height: 22px; background: none; color: var(--nai-muted); font-size: 13px; }
+.nai-more-settings svg:not(.is-open) { transform: rotate(-90deg); }
+.nai-shell .nai-sidebar .nai-settings-extra { display: grid; gap: 18px; }
+.nai-shell .nai-sidebar .nai-setting-flags { display: flex; gap: 8px; flex-wrap: wrap; }
+.nai-shell .nai-sidebar .nai-setting-toggle { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 3px 6px; border-radius: 3px; background: var(--nai-card); color: var(--nai-muted); font-size: 12px; }
+.nai-shell .nai-sidebar .nai-setting-toggle[aria-checked="true"] { color: var(--nai-accent); }

@@ -310,6 +310,49 @@ const checks = [
     assert.equal(readDirectorDraft({tool:'invalid',defry:99,emotion:{bad:true}}).tool,'lineart');
     assert.ok(directorSourceIssue({data:'YWJj',width:4096,height:4096,name:'oversized'}));
   }],
+  ['Automatic draft restore drops uploaded pixels and reference caches while retaining settings', async () => {
+    const restoreSession=actualFunction('restoreDraftForSession');
+    assert.equal((sourceText.match(/\brestoreDraftForSession\(/g) ?? []).length,2,
+      'the helper is declared once and called only by the automatic connection restore');
+    assert.match(sourceText,/restoreDraftForSession\(migrateDirectorDraft\(stored \?\? newDraft\(\)\)\)/);
+    const before={...newDraft(),operation:'inpaint',prompt:'keep prompt',futureDraftField:{keep:true},
+      parameters:{...structuredClone(defaultParameters),width:1536,height:1024,steps:41,scale:6.25,seed:7731,noise:0.35,
+        image:'source-image',mask:'source-mask',source_width:1536,source_height:1024,scale_factor:2,
+        reference_image_multiple:['vibe-a','vibe-b'],reference_strength_multiple:[0.25,0.75],reference_information_extracted_multiple:[0.4,0.8],
+        vibe_files:[{type:'image',data:'vibe-file'}],vibe_source_files:[{type:'encoding',data:'source-file'}],vibe_source_images:['source-vibe'],
+        vibe_encodings:{'model|hash':'cached-encoding'},vibe_pending_indices:[1],
+        character_reference_images:['character-image'],character_reference_descriptions:['character description'],
+        character_reference_strengths:[0.6],character_reference_fidelities:[0.9],futureParameterField:{keep:true}},
+      director:{model:'nai-diffusion-4-5-full',tool:'emotion',prompt:'keep director settings',emotion:'happy',defry:2,
+        source:{data:'director-image',width:640,height:480,name:'director.png'},resultId:'old-result',futureDirectorField:'keep'}};
+    const restored=restoreSession(before);
+    assert.equal(restored.operation,'generate');
+    assert.equal(restored.prompt,'keep prompt');
+    assert.deepEqual(restored.futureDraftField,{keep:true});
+    for(const [key,value] of Object.entries({width:1536,height:1024,steps:41,scale:6.25,seed:7731,noise:0.35,scale_factor:2}))
+      assert.equal(restored.parameters[key],value,`${key} remains a user setting`);
+    for(const key of ['image','mask','source_width','source_height','vibe_encodings','vibe_files','vibe_source_files','vibe_source_images','vibe_pending_indices'])
+      assert.equal(Object.hasOwn(restored.parameters,key),false,`${key} is removed from session restore`);
+    for(const key of ['reference_image_multiple','reference_strength_multiple','reference_information_extracted_multiple',
+      'character_reference_images','character_reference_descriptions','character_reference_strengths','character_reference_fidelities'])
+      assert.deepEqual(restored.parameters[key],[],`${key} is cleared with its aligned reference arrays`);
+    assert.deepEqual(restored.parameters.futureParameterField,{keep:true});
+    assert.equal(restored.director.source,undefined);
+    assert.equal(restored.director.resultId,undefined);
+    assert.equal(restored.director.prompt,'keep director settings');
+    assert.equal(restored.director.futureDirectorField,'keep');
+    assert.equal(before.parameters.image,'source-image','restoring does not mutate the stored input object');
+    assert.equal(before.director.source.data,'director-image');
+
+    const legacy={...newDraft(),operation:'augment',prompt:'legacy tool prompt',parameters:{...structuredClone(defaultParameters),
+      image:'legacy-source',source_width:800,source_height:600,req_type:'emotion',emotion:'happy',defry:3}};
+    const legacyRestored=restoreSession(migrateDirectorDraft(legacy));
+    assert.equal(legacyRestored.operation,'generate','a migrated image operation falls back after its source is removed');
+    assert.equal(legacyRestored.director.source,undefined);
+    assert.equal(legacyRestored.director.prompt,'legacy tool prompt');
+    assert.equal(legacyRestored.director.emotion,'happy');
+    assert.equal(legacyRestored.director.defry,3);
+  }],
   ['A newly saved result becomes selected without later polls stealing a manual selection', async () => {
     const h = harness();
     const refresh = h.fn('refresh');
@@ -542,6 +585,28 @@ const checks = [
     assert.equal(h.state.draft.prompt, 'Owner B draft', 'A stale import must not change B state or trigger B autosave');
     assert.deepEqual(h.state.rows, []);
     assert.deepEqual(h.state.errors, [], 'A ReferenceError or missing harness dependency is not an identity guard');
+  }],
+  ['Explicit same-session backup import still restores uploaded images and references', async () => {
+    const h=harness();
+    h.scope.setBackupWarning=()=>{};
+    const imported={...newDraft(),operation:'inpaint',parameters:{...structuredClone(defaultParameters),image:'backup-source',mask:'backup-mask',
+      source_width:640,source_height:480,reference_image_multiple:['backup-vibe'],reference_strength_multiple:[0.5],
+      reference_information_extracted_multiple:[0.7],vibe_files:[{type:'image',data:'backup-vibe-file'}],
+      vibe_encodings:{'backup-key':'backup-encoding'},character_reference_images:['backup-character'],
+      character_reference_descriptions:['backup description'],character_reference_strengths:[0.8],character_reference_fidelities:[0.9]},
+      director:{model:'nai-diffusion-4-5-full',tool:'lineart',prompt:'backup director',emotion:'neutral',defry:0,
+        source:{data:'backup-director-source',width:80,height:60,name:'backup.png'}}};
+    h.scope.local.importBackup=async()=>({count:1,projects:0,draft:imported});
+    await h.fn('restore')([{name:'fixture.json'}]);
+    assert.equal(h.state.draft.parameters.image,'backup-source');
+    assert.equal(h.state.draft.parameters.mask,'backup-mask');
+    assert.deepEqual(h.state.draft.parameters.reference_image_multiple,['backup-vibe']);
+    assert.deepEqual(h.state.draft.parameters.reference_strength_multiple,[0.5]);
+    assert.deepEqual(h.state.draft.parameters.reference_information_extracted_multiple,[0.7]);
+    assert.equal(h.state.draft.parameters.vibe_files[0].data,'backup-vibe-file');
+    assert.equal(h.state.draft.parameters.vibe_encodings['backup-key'],'backup-encoding');
+    assert.deepEqual(h.state.draft.parameters.character_reference_images,['backup-character']);
+    assert.equal(h.state.draft.director.source.data,'backup-director-source');
   }],
 ];
 

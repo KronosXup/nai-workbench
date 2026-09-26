@@ -1,0 +1,10 @@
+services:
+  frontend:
+    image: nai-workbench:local
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: Dockerfile.gate
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-alpine}
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
