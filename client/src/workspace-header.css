@@ -85,6 +85,7 @@ header.workspace-header button:hover,
 .workspace-resource-copy > small { flex: none; color: #9296b0; font-size: 10px; }
 .workspace-resource-copy > b { min-width: 0; overflow: hidden; color: #f2f2f5; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; text-overflow: ellipsis; }
 .workspace-resource-copy > .workspace-mock { padding: 1px 4px; border-radius: 3px; background: #2d304b; color: #bfc0cf; font-size: 9px; }
+.workspace-resource-copy > .workspace-resource-stale { color: #e5bd83; }
 .workspace-header button svg,
 .workspace-menu-popover button svg { flex: none; }
 

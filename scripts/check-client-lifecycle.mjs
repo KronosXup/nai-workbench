@@ -178,6 +178,37 @@ function harness() {
 }
 
 const checks = [
+  ['Background account refresh keeps cached data, reports locally and backs off after failures', async () => {
+    let current = {id:'A', name:'Owner A', quota:{remaining:42}}, refreshIssue = false;
+    const generation = {current:7};
+    const setUser = change => { current = typeof change === 'function' ? change(current) : change; };
+    const setRefreshIssue = value => { refreshIssue = typeof value === 'function' ? value(refreshIssue) : value; };
+    const refresh = actualFunction('refreshUserSnapshot');
+    assert.equal(await refresh({request:async () => { throw new Error('temporary network failure'); }}, 7, generation, () => false, setUser, setRefreshIssue), false);
+    assert.deepEqual(current, {id:'A', name:'Owner A', quota:{remaining:42}}, 'a failed poll retains the last account snapshot');
+    assert.equal(refreshIssue, true, 'failure is exposed through the local account status');
+
+    const cached = current;
+    const recovered = actualFunction('refreshUserSnapshot');
+    assert.equal(await recovered({request:async () => structuredClone(cached)}, 7, generation, () => false, setUser, setRefreshIssue), true);
+    assert.equal(current, cached, 'unchanged account data does not force another App update');
+    assert.equal(refreshIssue, false, 'a successful refresh clears the local warning');
+
+    const stale = actualFunction('refreshUserSnapshot');
+    assert.equal(await stale({request:async () => ({id:'B'})}, 6, generation, () => false, setUser, setRefreshIssue), false);
+    assert.equal(current, cached, 'a stale response cannot replace the current account');
+    assert.equal(refreshIssue, false);
+
+    const delay = actualFunction('accountRefreshDelay', {
+      ACCOUNT_REFRESH_INTERVAL_MS:5_000,
+      ACCOUNT_REFRESH_RETRY_BASE_MS:15_000,
+      ACCOUNT_REFRESH_RETRY_MAX_MS:300_000,
+    });
+    assert.equal(delay(0), 5_000);
+    assert.equal(delay(1), 15_000);
+    assert.equal(delay(2), 30_000);
+    assert.equal(delay(6), 300_000, 'repeated failures cap the retry delay at five minutes');
+  }],
   ['The streaming setting controls the next request without changing earlier task snapshots', async () => {
     const h = quoteHarness();
     const previous = h.fn('taskFor')();

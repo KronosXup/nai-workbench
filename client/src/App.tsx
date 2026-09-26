@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, SetStateAction } from "react";
 import {
   ArrowDownToLine,
 
@@ -82,6 +82,34 @@ type PreviewJob = Job & {
   preview?: { image: string; media_type: string; step?: number };
 };
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const ACCOUNT_REFRESH_INTERVAL_MS = 5_000;
+const ACCOUNT_REFRESH_RETRY_BASE_MS = 15_000;
+const ACCOUNT_REFRESH_RETRY_MAX_MS = 300_000;
+function accountRefreshDelay(failures: number) {
+  return failures > 0
+    ? Math.min(ACCOUNT_REFRESH_RETRY_MAX_MS, ACCOUNT_REFRESH_RETRY_BASE_MS * 2 ** Math.min(20, failures - 1))
+    : ACCOUNT_REFRESH_INTERVAL_MS;
+}
+async function refreshUserSnapshot(
+  api: Api,
+  sequence: number,
+  generation: { current: number },
+  isStopped: () => boolean,
+  setUser: (value: SetStateAction<User | null>) => void,
+  setRefreshIssue: (value: SetStateAction<boolean>) => void,
+) {
+  try {
+    const user = await api.request<User>("/me");
+    if (isStopped() || sequence !== generation.current) return false;
+    setUser(current => current && JSON.stringify(current) === JSON.stringify(user) ? current : user);
+    setRefreshIssue(false);
+    return true;
+  } catch {
+    // Account refresh is independent of an image request; keep the last known balance.
+    if (!isStopped() && sequence === generation.current) setRefreshIssue(true);
+    return false;
+  }
+}
 const statusNames: Record<Job["status"], string> = {
   queued: "排队中",
   waiting: "等待限流解除",
@@ -275,6 +303,7 @@ export default function App() {
   const [queueNow, setQueueNow] = useState(() => Date.now() / 1000);
   const [notice, setNotice] = useState("");
   const [failure, setFailure] = useState("");
+  const [userRefreshIssue, setUserRefreshIssue] = useState(false);
   const [backupWarning, setBackupWarning] = useState("");
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -466,6 +495,7 @@ export default function App() {
     sessionStorage.removeItem("nai-wb-token");
     syncBusy.current = false;
     setFailure("");
+    setUserRefreshIssue(false);
     setNotice("");
     setBackupWarning("");
   }, []);
@@ -476,6 +506,7 @@ export default function App() {
     submitCache.current = null;
     setConnecting(true);
     setFailure("");
+    setUserRefreshIssue(false);
     setBackupWarning("");
     setLoaded(false);
     setImports([]);
@@ -693,23 +724,34 @@ export default function App() {
   }, [api, refresh]);
   useEffect(() => {
     if (!api || !user) return;
-    let stopped = false, running = false;
+    let stopped = false, running = false, failures = 0, nextPollAt = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const poll = async () => {
       if (stopped || running) return;
       running = true;
       const seq = generation.current;
-      try {
-        const me = await api.request<User>('/me');
-        if (!stopped && seq === generation.current) setUser(me);
-      } catch (e) {
-        if (!stopped && seq === generation.current) fail(e);
-      } finally {
-        running = false;
+      const refreshed = await refreshUserSnapshot(api, seq, generation, () => stopped, setUser, setUserRefreshIssue);
+      if (refreshed) failures = 0;
+      else if (!stopped && seq === generation.current) failures++;
+      running = false;
+      if (!stopped) {
+        const delay = accountRefreshDelay(failures);
+        nextPollAt = Date.now() + delay;
+        timer = setTimeout(() => void poll(), delay);
       }
     };
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible' || running || Date.now() < nextPollAt) return;
+      if (timer !== undefined) clearTimeout(timer);
+      void poll();
+    };
     void poll();
-    const timer = setInterval(() => void poll(), 2200);
-    return () => { stopped = true; clearInterval(timer); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      stopped = true;
+      if (timer !== undefined) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [api, user?.id]);
   useEffect(() => {
     if (!notice) return;
@@ -1473,7 +1515,7 @@ export default function App() {
       <input ref={importInput} hidden type="file" multiple accept="image/png,image/jpeg,image/webp" aria-label="导入图片文件" onChange={e=>{void openImages(Array.from(e.target.files??[]));e.target.value='';}}/>
       {dragging && user && <div className="image-drop-overlay">松开导入图片<span>{page === 'director' ? '载入导演工具原图' : '选择图生图、Vibe、精准参考或导入生成参数'}</span></div>}
       {user && !showMask && imports.length>0 && <ImageImportDialog key={imports[0].name+imports.length} image={imports[0]} remaining={imports.length} model={effectiveModelForOperation(draft.model,draft.operation)} onClose={()=>{importSequence.current++;setImports([]);}} onUse={kind=>{try{acceptImage(kind,imports[0]);setImports(v=>v.slice(1));}catch(e){fail(e);}}} onMetadata={importParameters}/>}
-      {user && <WorkspaceHeader page={page} onPage={setPage} user={user} isMock={isMock} pending={queuePending}
+      {user && <WorkspaceHeader page={page} onPage={setPage} user={user} userRefreshIssue={userRefreshIssue} isMock={isMock} pending={queuePending}
         onQueue={() => setShowQueue(true)} onLibrary={() => setShowLibrary("all")}
         onNewCanvas={openBlankDrawingCanvas}
         onBlankCanvas={() => { setBlankCanvas(true); setPage("draw"); setMobileTab("result"); }} />}
@@ -1964,6 +2006,7 @@ export default function App() {
                         已用 {user.quota.used} · 预留 {user.quota.reserved}
                       </span>}
                     </dd>
+                    {userRefreshIssue && <><dt>账户状态</dt><dd role="status">暂时无法刷新，当前显示上次读取的数据。</dd></>}
                     {user.gate_quota && <><dt>今日 V5 可用</dt><dd>{user.gate_quota.v5Unlimited ? '未设张数限制' : `${user.gate_quota.v5LeftToday} 次`}</dd></>}
                   </dl>
                   <button onClick={disconnect}>
