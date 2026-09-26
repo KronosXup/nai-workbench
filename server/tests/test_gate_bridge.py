@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from app.adapters import AdapterError, Artifact, NaiAdapter
+import app.adapters as adapters
 from app.config import Settings
 from app.gate_bridge import create_app, estimate
 import app.gate_bridge as gate_bridge
@@ -596,7 +597,7 @@ def test_gate_sse_error_is_never_treated_as_a_pre_dispatch_wait():
     asyncio.run(run())
 
 
-def test_stream_returns_on_valid_final_even_when_upstream_never_closes():
+def test_stream_returns_on_valid_final_even_when_upstream_never_closes(monkeypatch):
     import base64
     import io
     from PIL import Image
@@ -605,6 +606,7 @@ def test_stream_returns_on_valid_final_even_when_upstream_never_closes():
     Image.new('RGB', (24, 24), 'navy').save(image, format='PNG')
     encoded = base64.b64encode(image.getvalue()).decode()
     payload = ('event: final\ndata: ' + json.dumps({'image': encoded, 'final': True}) + '\n\n').encode()
+    monkeypatch.setattr(adapters, 'STREAM_FINAL_DRAIN_SECONDS', 0.05)
 
     class OpenStream(httpx.AsyncByteStream):
         def __init__(self):
@@ -636,6 +638,41 @@ def test_stream_returns_on_valid_final_even_when_upstream_never_closes():
             if not execution.done():
                 execution.cancel()
             await asyncio.gather(execution, return_exceptions=True)
+            await adapter.close()
+    asyncio.run(run())
+
+
+def test_stream_reads_response_eof_after_final():
+    import base64
+    import io
+    from PIL import Image
+
+    image = io.BytesIO()
+    Image.new('RGB', (24, 24), 'navy').save(image, format='PNG')
+    payload = ('event: final\ndata: ' + json.dumps({'image': base64.b64encode(image.getvalue()).decode(), 'final': True}) + '\n\n').encode()
+
+    class ClosingStream(httpx.AsyncByteStream):
+        def __init__(self):
+            self.reached_eof = False
+
+        async def __aiter__(self):
+            yield payload
+            self.reached_eof = True
+
+        async def aclose(self):
+            pass
+
+    async def run():
+        stream = ClosingStream()
+        adapter = NaiAdapter(Settings(nai_token='fixture'), httpx.MockTransport(
+            lambda _: httpx.Response(200, headers={'Content-Type': 'text/event-stream'}, stream=stream)))
+        item = task()
+        item['parameters']['stream'] = True
+        try:
+            artifacts = await adapter.execute(item)
+            assert len(artifacts) == 1 and artifacts[0].data == image.getvalue()
+            assert stream.reached_eof, 'final image caused an early client disconnect'
+        finally:
             await adapter.close()
     asyncio.run(run())
 

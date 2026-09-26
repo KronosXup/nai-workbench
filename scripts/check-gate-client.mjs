@@ -65,7 +65,7 @@ try {
     assert.match(display(3,1,1.1),/冷却约 2 秒/);
     assert.match(display(3,1,2.1),/冷却约 1 秒/,'keep the final real second visible');
     assert.doesNotMatch(display(3,1,3.1),/冷却/);
-    assert.match(display(0,0,15.1),/服务器状态暂不可用/,'unchanged snapshots age out on the local clock');
+    assert.match(display(0,0,15.1),/排队状态暂不可用/,'unchanged snapshots age out on the local clock');
     assert.match(display(0),/全站：占用 0\/1 · 排队 0/);
     console.log('PASS queue display: clock skew, real countdown, local expiry and compact copy');
   }

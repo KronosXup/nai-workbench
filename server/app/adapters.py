@@ -32,6 +32,7 @@ from .model_policy import request_model_for_operation
 MAX_RESPONSE = 96 * 1024 * 1024
 MAX_IMAGE_PIXELS = 20_000_000
 MAX_ARTIFACTS = 32
+STREAM_FINAL_DRAIN_SECONDS = 8
 DIRECTOR_TOOLS = {"bg-removal", "lineart", "sketch", "colorize", "emotion", "declutter", "declutter-keep-bubbles"}
 REFERENCE_CANVASES = ((1024, 1536), (1536, 1024), (1472, 1472))
 _REFERENCE_CACHE_SECRET = secrets.token_bytes(32)
@@ -458,13 +459,38 @@ class NaiAdapter:
                 await on_preview({"image": base64.b64encode(image.data).decode(), "media_type": image.media_type, "step": payload.get("step")})
             return False
 
-        async for line in response.aiter_lines():
+        # A final image is already verified, but keep reading briefly so Gate can
+        # finish the HTTP response and its accounting before this client closes.
+        lines = response.aiter_lines().__aiter__()
+        final_deadline: float | None = None
+        loop = asyncio.get_running_loop()
+        while True:
+            try:
+                if final_deadline is None:
+                    line = await lines.__anext__()
+                else:
+                    remaining = final_deadline - loop.time()
+                    if remaining <= 0:
+                        break
+                    line = await asyncio.wait_for(lines.__anext__(), remaining)
+            except StopAsyncIteration:
+                break
+            except TimeoutError:
+                break
+            except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError):
+                if final_deadline is None:
+                    raise
+                break
             total += len(line)
             if total > MAX_RESPONSE * 8:
+                if final_deadline is not None:
+                    break
                 raise AdapterError("stream_too_large", "流式结果超过限制", uncertain=True)
+            if final_deadline is not None:
+                continue
             if not line:
                 if await consume():
-                    return final
+                    final_deadline = loop.time() + STREAM_FINAL_DRAIN_SECONDS
                 event_name, data_lines = "", []
             elif line.startswith("event:"):
                 event_name = line[6:].strip()
@@ -472,8 +498,8 @@ class NaiAdapter:
                 data_lines.append(line[5:].lstrip())
                 if sum(map(len, data_lines)) > MAX_RESPONSE * 4 // 3:
                     raise AdapterError("frame_too_large", "流式帧超过限制", uncertain=True)
-        if await consume():
-            return final
+        if final_deadline is None:
+            await consume()
         if not final:
             raise AdapterError("missing_final", "只收到预览，未收到完整最终图片；结果待确认", uncertain=True)
         return final

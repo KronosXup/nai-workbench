@@ -55,7 +55,12 @@ export function useGateQueueStatus(api: Api | null, enabled: boolean): Monitor {
           setState({ api: currentApi, snapshot, receivedAt });
         }
       } catch {
-        if (!stopped) setState({ api: currentApi, unavailable: true });
+        if (!stopped) setState(previous => {
+          // One failed queue poll does not mean generation is unavailable.
+          if (previous.api === currentApi && previous.snapshot && previous.receivedAt !== undefined &&
+              performance.now() - previous.receivedAt <= 15000) return previous;
+          return { api: currentApi, unavailable: true };
+        });
       } finally {
         clearTimeout(deadline);
         running = false;
@@ -90,8 +95,8 @@ export default function GateQueueStatus({ monitor }: { monitor: Monitor }) {
   const snapshot = monitor.snapshot;
   const age = monitor.receivedAt === undefined ? 0 : Math.max(0, (performance.now() - monitor.receivedAt) / 1000);
   if (monitor.unavailable || (snapshot && age > 15))
-    return <span>服务器状态暂不可用</span>;
-  if (!snapshot) return <span>读取服务器状态…</span>;
+    return <span>排队状态暂不可用</span>;
+  if (!snapshot) return <span>读取排队状态…</span>;
   const cooldown = Math.max(0, Math.ceil(snapshot.image_cooldown_remaining - age));
   return <span>全站：占用 {snapshot.global.active}/{snapshot.global.concurrency} · 排队 {snapshot.global.waiting}
     {cooldown > 0 && <> · 冷却约 {cooldown} 秒</>}</span>;

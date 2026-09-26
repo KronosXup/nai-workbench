@@ -594,10 +594,7 @@ export default function App() {
       owner = identity.current;
     let saving: { resultId: string; saved: boolean } | undefined;
     try {
-      const [result, me] = await Promise.all([
-        api.request<{ jobs: PreviewJob[]; queue_paused?: boolean; encoding?: boolean; encoding_retry_at?: number; encoding_paused?: boolean; encoding_wait_reason?: QueueWaitReason }>("/jobs"),
-        api.request<User>("/me"),
-      ]);
+      const result = await api.request<{ jobs: PreviewJob[]; queue_paused?: boolean; encoding?: boolean; encoding_retry_at?: number; encoding_paused?: boolean; encoding_wait_reason?: QueueWaitReason }>("/jobs");
       if (seq !== generation.current) return;
       setJobs(result.jobs);
       setQueuePaused(Boolean(result.queue_paused));
@@ -606,7 +603,6 @@ export default function App() {
       setEncodingRetryAt(result.encoding_retry_at);
       setEncodingWaitReason(result.encoding_wait_reason);
       setQueueNow(Date.now() / 1000);
-      setUser(me);
       let newestSaved: LocalImage | undefined;
       let newestDirectorSaved: LocalImage | undefined;
       for (const job of result.jobs) {
@@ -695,6 +691,26 @@ export default function App() {
     const t = setInterval(() => void refresh(), 2200);
     return () => clearInterval(t);
   }, [api, refresh]);
+  useEffect(() => {
+    if (!api || !user) return;
+    let stopped = false, running = false;
+    const poll = async () => {
+      if (stopped || running) return;
+      running = true;
+      const seq = generation.current;
+      try {
+        const me = await api.request<User>('/me');
+        if (!stopped && seq === generation.current) setUser(me);
+      } catch (e) {
+        if (!stopped && seq === generation.current) fail(e);
+      } finally {
+        running = false;
+      }
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), 2200);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [api, user?.id]);
   useEffect(() => {
     if (!notice) return;
     const t = setTimeout(() => setNotice(""), 6000);
