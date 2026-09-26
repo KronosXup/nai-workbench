@@ -9,7 +9,7 @@ import httpx
 import pytest
 from PIL import Image
 
-from app.adapters import AdapterError, MockAdapter, NaiAdapter, build_request, unpack_images
+from app.adapters import AdapterError, NaiAdapter, build_request, unpack_images
 
 
 def png():
@@ -19,7 +19,7 @@ def png():
 
 
 def settings():
-    return SimpleNamespace(nai_base_url="https://upstream.test", nai_token="test-only-token", upstream_timeout=5, mock_delay=0)
+    return SimpleNamespace(nai_base_url="https://upstream.test", nai_token="test-only-token", upstream_timeout=5)
 
 
 def job(**params):
@@ -186,14 +186,11 @@ def test_invalid_precise_reference_is_rejected_before_network(change, expected):
     assert not error.value.uncertain
 
 
-def test_mock_can_run_without_any_upstream():
-    async def execute():
-        return await MockAdapter(settings()).execute(job(width=320, height=448))
-    artifacts = asyncio.run(execute())
-    assert artifacts[0].metadata["mock"] is True
-    with Image.open(io.BytesIO(artifacts[0].data)) as image:
-        assert image.size == (320, 448)
-        assert "local mock" in image.info["Software"]
+def test_mock_vibe_encoding_is_rejected_before_network():
+    source = job(reference_image_multiple=["MOCK:local-diagnostic"])
+    with pytest.raises(AdapterError) as error:
+        build_request(source)
+    assert error.value.code == "mock_reference"
 
 
 def test_broken_upload_is_definite_failure_without_contacting_upstream():

@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from .adapters import AdapterError, NaiAdapter
 from .config import Settings
 from .model_policy import effective_model_for_operation
-from .service import validate_task
+from .task_validation import validate_task
 
 OPERATIONS = ['generate', 'img2img', 'inpaint', 'encode_vibe', 'upscale', 'augment']
 MODELS = [

@@ -16,6 +16,7 @@ PUBLIC_TESTS = (
     "server/tests/test_gate_bridge.py",
     "server/tests/test_inpaint.py",
     "server/tests/test_bridge_security.py",
+    "server/tests/test_task_validation.py",
     "server/adapter_tests/test_adapters.py",
 )
 CLIENT_TESTS = (
@@ -181,7 +182,6 @@ def main() -> int:
         node_guard.write_text(NODE_OFFLINE_GUARD, encoding="utf-8")
 
         env = os.environ.copy()
-        env["WORKBENCH_UPSTREAM_MODE"] = "mock"
         env["WORKBENCH_GATE_URL"] = "http://127.0.0.1:9"
         env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
         env["PYTHONDONTWRITEBYTECODE"] = "1"

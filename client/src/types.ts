@@ -90,9 +90,7 @@ export type User = {
   gate_quota?: { anlasLeft: number; anlasEnabled?: boolean; anlasMonthlyLimit?: number; isAdmin?: boolean; v5LeftToday: number; v5Unlimited: boolean; imageModelScope: string };
   id: string;
   name: string;
-  is_admin: boolean;
   quota: { limit: number; used: number; reserved: number; remaining: number };
-  storage_policy: { mode: string; retention_hours: number };
 };
 export type Capabilities = {
   backend?: "gate";
@@ -104,14 +102,7 @@ export type Capabilities = {
     vibe_transfer?: boolean;
   }[];
   operations: Operation[];
-  mode: "mock" | "nai";
   live_verified: boolean;
-};
-export type StorageSettings = {
-  mode: "retain_until_expiry" | "delete_after_ack";
-  retention_hours: number;
-  max_pending_per_user: number;
-  max_storage_mb: number;
 };
 export type LocalImage = {
   key: string;

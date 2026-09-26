@@ -44,7 +44,6 @@ type Props = {
   models: Capabilities["models"];
   operations?: Operation[];
   user: User;
-  isMock: boolean;
   busy: boolean;
   pending: number;
   quote: {
@@ -208,7 +207,6 @@ export default function OfficialWorkspace(p: Props) {
   const quoteLabel = usesV5 ? `${quoteUnits} 次 V5` : `${quoteUnits} 积分`;
   const quoteTitle = p.quote
     ? `预计消耗：${quoteLabel}；实际以 Gate 最终结算为准。${p.quote.message ? ` ${p.quote.message}` : ""}`
-    : p.isMock ? "模拟生成；当前不会估算实际消耗。"
     : p.quoteError ? `消耗估算失败：${p.quoteError.message}` : "正在估算消耗";
   const buttonQuoteLabel = p.quote && !p.quote.verified ? `约 ${quoteLabel}` : quoteLabel;
   const encodingUnits = p.quote?.encoding_units ?? 0;
@@ -651,7 +649,7 @@ export default function OfficialWorkspace(p: Props) {
                 : `${labels[p.draft.operation]} · ${p.draft.count} 张`}
             </strong>
             <span className="nai-cost">
-              {blocked ? "需调整设置" : p.isMock ? "模拟" : p.quote ? <>{usesV5 ? <Images size={13} /> : <Coins size={13} />}{buttonQuoteLabel}</> : p.quoteError ? "估算失败" : "估算中"}
+              {blocked ? "需调整设置" : p.quote ? <>{usesV5 ? <Images size={13} /> : <Coins size={13} />}{buttonQuoteLabel}</> : p.quoteError ? "估算失败" : "估算中"}
             </span>
           </button>
           {p.configurationIssue ? (
@@ -662,16 +660,16 @@ export default function OfficialWorkspace(p: Props) {
                 <button onClick={showConfiguration}>{p.configurationIssue.target === 'references' ? '查看图像与参考设置' : '检查生成设置'}</button>
               </div>
             </div>
-          ) : !p.isMock && p.quoteError ? (
+          ) : p.quoteError ? (
             <div className="nai-estimate has-error">
               <span role="status">{p.quoteError.message}</span>
               {p.quoteError.retryable ? <button onClick={p.quoteRequest}>重试估算</button> : p.quoteError.connection ? <button onClick={() => p.onPage("settings")}>检查连接</button> : <button onClick={showConfiguration}>检查设置</button>}
             </div>
-          ) : !p.isMock && p.quote ? (
+          ) : p.quote ? (
             encodingUnits > 0 ? <div className="nai-estimate nai-encoding-estimate" role="note">预计首次 Vibe 编码增加 {encodingUnits} 积分，已计入按钮金额</div> : null
-          ) : !p.isMock ? (
+          ) : (
             <div className="nai-estimate"><span>正在估算消耗…</span></div>
-          ) : null}
+          )}
         </footer>
       </aside>
       <section className="nai-main">

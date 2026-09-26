@@ -4,7 +4,6 @@ import {
   ArrowDownToLine,
 
   ArrowRight,
-  Check,
   ChevronDown,
   Clock,
   Copy,
@@ -27,8 +26,8 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { Api, ApiError } from "./api";
-import { connectionTarget } from "./connection";
+import { ApiError, type Api } from "./api";
+import { verifyGateHealth } from "./connection";
 import { configurationIssueFor, effectiveModelForOperation, usesGenerationSettings } from "./taskValidation";
 import type { QuoteError } from "./taskValidation";
 import { GateApi, MAX_PENDING } from "./gateApi";
@@ -44,7 +43,6 @@ import type {
   LocalImage,
   Operation,
   QueueWaitReason,
-  StorageSettings,
   Strings,
   Task,
   User,
@@ -60,7 +58,6 @@ import { readImage, applyMetadata, vibeKey } from "./imageImport";
 import { VibeReferenceError, encodingFor, makeVibeFile, readVibeFile, resolveVibeReference, vibeDownload, vibeModelKey, vibeParameterHash } from "./vibeFiles";
 import type { VibeFileItem } from "./vibeFiles";
 import type { ImportedImage, ImportOptions } from "./imageImport";
-import AccessManagement from "./AccessManagement";
 import OfficialWorkspace from "./OfficialWorkspace";
 import ReferenceImages from "./ReferenceImages";
 import DirectorWorkspace from "./DirectorWorkspace";
@@ -273,19 +270,14 @@ export default function App() {
   const [token, setToken] = useState(
     () => sessionStorage.getItem("nai-wb-token") || "",
   );
-  const [base, setBase] = useState(
-    () => localStorage.getItem("nai-wb-base") || "",
-  );
   const [loginToken, setLoginToken] = useState(token);
-  const [loginBase, setLoginBase] = useState(base);
-  const [api, setApi] = useState<Api | null>(null);
+  const [api, setApi] = useState<GateApi | null>(null);
   const suggestTags = useCallback(async (model: string, fragment: string): Promise<TagSuggestion[]> => {
     if (!api) return [];
     const result = await api.request<{tags:TagSuggestion[]}>('/suggest-tags',{model,prompt:fragment});
     return result.tags;
   }, [api]);
-  const apiRef = useRef<Api | null>(null);
-  const [isGate, setIsGate] = useState(false);
+  const apiRef = useRef<GateApi | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -341,7 +333,6 @@ export default function App() {
   } | null>(null);
   const [quoteError, setQuoteError] = useState<QuoteError | null>(null);
   const quoteVersion = useRef(0);
-  const [storage, setStorage] = useState<StorageSettings | null>(null);
   const [galleryQuery, setGalleryQuery] = useState("");
   const generation = useRef(0),
     draftRef = useRef(draft),
@@ -389,10 +380,9 @@ export default function App() {
   const preview = jobs.find(
     (j) => j.operation !== 'augment' && j.status === "running" && j.preview,
   )?.preview;
-  const isMock = caps?.mode === "mock";
   const pendingSaveJobs = jobs.filter(job => job.status === 'succeeded' && job.results.some(r => !r.acknowledged && !r.deleted));
   const queuePending = activeJobs.length + pendingSaveJobs.length + (queueEncoding ? 1 : 0);
-  const serverQueue = useGateQueueStatus(user && isGate ? api : null, queuePending > 0 || showQueue);
+  const serverQueue = useGateQueueStatus(user ? api : null, queuePending > 0 || showQueue);
   const hasRetryCountdown = Boolean(encodingRetryAt || jobs.some(j => j.status === "waiting" && j.retry_at));
   const displayJobs = jobs.map((job, index) => ({ job, index }))
     .sort((a, b) => b.job.created_at - a.job.created_at || b.index - a.index)
@@ -461,10 +451,8 @@ export default function App() {
 
   const disconnect = useCallback(() => {
     const current = apiRef.current;
-    if (current instanceof GateApi) {
-      if (current.pending() && !window.confirm("还有任务或未保存的结果。退出会停止本页队列，已发出的请求可能仍扣额度，确定退出？")) return;
-      current.close();
-    }
+    if (current?.pending() && !window.confirm("还有任务或未保存的结果。退出会停止本页队列，已发出的请求可能仍扣额度，确定退出？")) return;
+    current?.close();
     apiRef.current = null;
     settleConfirmation(false);
     if (identity.current)
@@ -487,7 +475,6 @@ export default function App() {
     setSelectedId(undefined);
     setLoaded(false);
     setDraft(newDraft());
-    setStorage(null);
     setQuote(null);
     setQuoteError(null);
     setToken("");
@@ -499,7 +486,7 @@ export default function App() {
     setNotice("");
     setBackupWarning("");
   }, []);
-  const connect = useCallback(async (access: string, address: string) => {
+  const connect = useCallback(async (access: string) => {
     settleConfirmation(false);
     const seq = ++generation.current;
     syncBusy.current = false;
@@ -521,25 +508,23 @@ export default function App() {
     setBlankCanvas(false); setPendingMaskDraft(null); setShowMask(false); setCanvasInput(null); setPixelInput(null);
     setSelectedId(undefined);
     setDraft(newDraft());
-    setStorage(null);
     setQuote(null);
     setQuoteError(null);
     identity.current = "";
     canvasScope.current = "";
     try {
-      if (!access.trim()) throw new Error("请填写工具访问口令。");
-      const { base: normalized, gate } = await connectionTarget(address);
+      if (!access.trim()) throw new Error("请填写 Gate Key。");
+      await verifyGateHealth();
       if (seq !== generation.current) return;
-      const client = gate ? new GateApi(normalized, access.trim()) : new Api(normalized, access.trim());
-      setIsGate(gate);
+      const client = new GateApi("", access.trim());
       const [me, capabilities] = await Promise.all([
         client.request<User>("/me"),
         client.request<Capabilities>("/capabilities"),
       ]);
       if (me.gate_quota?.imageModelScope === 'legacy') capabilities.models = capabilities.models.filter(m=>!m.id.startsWith('nai-diffusion-5'));
       if (seq !== generation.current) return;
-      // A server's stable user ID scopes its local data; the server address prevents cross-install collisions.
-      const owner = `${normalized || location.origin}|${me.id}`;
+      // Keep the existing site and Gate identity namespace so local drafts and gallery records remain visible.
+      const owner = `${location.origin}|${me.id}`;
       let recoveredDraft = false;
       const [stored, images] = await Promise.all([
         local.readDraft(owner).catch(error => {
@@ -563,21 +548,10 @@ export default function App() {
       setApi(client);
       apiRef.current = client;
       setToken(access.trim());
-      setBase(normalized);
-      setLoginBase(normalized);
       sessionStorage.setItem("nai-wb-token", access.trim());
-      if (normalized) localStorage.setItem("nai-wb-base", normalized);
-      else localStorage.removeItem("nai-wb-base");
+      localStorage.removeItem("nai-wb-base");
       setLoaded(true);
       if (recoveredDraft) notify("草稿已损坏，已恢复默认设置；图库仍保留。");
-      if (me.is_admin) {
-        try {
-          const s = await client.request<StorageSettings>("/settings");
-          if (seq === generation.current) setStorage(s);
-        } catch (e) {
-          if (seq === generation.current) fail(e);
-        }
-      }
     } catch (e) {
       if (seq === generation.current) {
         fail(e);
@@ -588,15 +562,14 @@ export default function App() {
     }
   }, []);
   useEffect(() => {
-    void fetch('/api/health').then(r=>r.json()).then(h=>setIsGate(h.mode==='gate')).catch(()=>{});
     const warn = (event: BeforeUnloadEvent) => {
-      if (apiRef.current instanceof GateApi && apiRef.current.pending()) { event.preventDefault(); event.returnValue = ''; }
+      if (apiRef.current?.pending()) { event.preventDefault(); event.returnValue = ''; }
     };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, []);
   useEffect(() => {
-    if (token) void connect(token, base);
+    if (token) void connect(token);
     return () => {
       generation.current++;
     };
@@ -682,7 +655,7 @@ export default function App() {
               existing.result.sha256 !== result.sha256 ||
               (await local.digest(existing.blob)) !== result.sha256
             )
-              throw new Error("本地图片校验未通过，未确认服务器副本。");
+              throw new Error("本地图片校验未通过，未确认保存完成。");
             if (seq !== generation.current) return;
             saving.saved = true;
             await api.request(
@@ -919,13 +892,12 @@ export default function App() {
     try {
       items.forEach(validateTask);
       // Check before Vibe encoding, which may incur a charge. Recheck on enqueue too.
-      if (api instanceof GateApi) api.checkCapacity(items.length);
+      api.checkCapacity(items.length);
       const cache={...draftRef.current.parameters.vibe_encodings};
       for(const task of items) {
         const pending=(task.parameters.vibe_pending_indices??[]) as number[];
         const encodingModel = effectiveModelForOperation(task.model, task.operation);
         for(const index of pending) {
-          if(!(api instanceof GateApi))throw new Error('自动 Vibe 编码需要连接 Gate');
           const source=task.parameters.reference_image_multiple[index], extracted=task.parameters.reference_information_extracted_multiple[index]??1;
           const key=vibeKey(source,encodingModel,extracted);
           if(!cache[key]) {
@@ -1371,7 +1343,7 @@ export default function App() {
   const configurationIssue = configurationIssueFor({ ...draft, operation: effectiveOperation }, models, caps?.operations);
   const generationBlocked = Boolean(configurationIssue || (quoteError && !quoteError.retryable));
   const maxCharacters = models.find(m => m.id === effectiveModelForOperation(draft.model, effectiveOperation))?.max_characters ?? 6;
-  const batchCapacityIssue = isGate && batchTasks().length + queuePending > MAX_PENDING
+  const batchCapacityIssue = batchTasks().length + queuePending > MAX_PENDING
     ? `本次 ${batchTasks().length} 张，队列还可加入 ${Math.max(0, MAX_PENDING - queuePending)} 张。` : "";
   const characters = (
     <Section
@@ -1515,11 +1487,11 @@ export default function App() {
       <input ref={importInput} hidden type="file" multiple accept="image/png,image/jpeg,image/webp" aria-label="导入图片文件" onChange={e=>{void openImages(Array.from(e.target.files??[]));e.target.value='';}}/>
       {dragging && user && <div className="image-drop-overlay">松开导入图片<span>{page === 'director' ? '载入导演工具原图' : '选择图生图、Vibe、精准参考或导入生成参数'}</span></div>}
       {user && !showMask && imports.length>0 && <ImageImportDialog key={imports[0].name+imports.length} image={imports[0]} remaining={imports.length} model={effectiveModelForOperation(draft.model,draft.operation)} onClose={()=>{importSequence.current++;setImports([]);}} onUse={kind=>{try{acceptImage(kind,imports[0]);setImports(v=>v.slice(1));}catch(e){fail(e);}}} onMetadata={importParameters}/>}
-      {user && <WorkspaceHeader page={page} onPage={setPage} user={user} userRefreshIssue={userRefreshIssue} isMock={isMock} pending={queuePending}
+      {user && <WorkspaceHeader page={page} onPage={setPage} user={user} userRefreshIssue={userRefreshIssue} pending={queuePending}
         onQueue={() => setShowQueue(true)} onLibrary={() => setShowLibrary("all")}
         onNewCanvas={openBlankDrawingCanvas}
         onBlankCanvas={() => { setBlankCanvas(true); setPage("draw"); setMobileTab("result"); }} />}
-      {user && isGate && (queuePending > 0 || queuePaused || encodingPaused) && <div className="queue-status-banner" role="status">
+      {user && (queuePending > 0 || queuePaused || encodingPaused) && <div className="queue-status-banner" role="status">
         <div className="queue-status-copy"><span>{queueMessage}</span><small><GateQueueStatus monitor={serverQueue}/></small></div>
         <button onClick={() => setShowQueue(true)}>查看队列</button>
       </div>}
@@ -1548,47 +1520,32 @@ export default function App() {
             aria-labelledby="login-title"
             onSubmit={(e) => {
               e.preventDefault();
-              void connect(loginToken, loginBase);
+              void connect(loginToken);
             }}
           >
             <header className="login-heading">
               <Paintbrush size={30} strokeWidth={1.6} aria-hidden="true" />
               <h1 id="login-title">NAI 工作台</h1>
             </header>
-            <Field label={isGate ? "Gate Key" : "访问口令"}>
+            <Field label="Gate Key">
               <input
                 autoFocus
                 type="password"
                 autoComplete="current-password"
                 value={loginToken}
                 onChange={(e) => setLoginToken(e.target.value)}
-                placeholder={isGate ? "输入现有 Gate 的 Key" : "输入本站访问口令"}
+                placeholder="输入现有 Gate 的 Key"
                 aria-describedby="login-token-help"
                 required
               />
             </Field>
             <p id="login-token-help" className="login-help">
-              {isGate ? "使用现有 Gate 分配的 Key，无需填写 NovelAI 官方密钥。" : "由工作台维护者提供，无需填写 NovelAI 密钥。"}
+              使用现有 Gate 分配的 Key，无需填写 NovelAI 官方密钥。
             </p>
             <button className="primary" disabled={connecting}>
               {connecting && <LoaderCircle className="spin" size={17} />}
               {connecting ? "连接中…" : "进入绘图"}
             </button>
-            {!isGate && <details className="connection-extra" open={Boolean(base) || undefined}>
-              <summary>
-                连接其他服务
-                <ChevronDown size={14} />
-              </summary>
-              <Field label="服务地址">
-                <input
-                  type="url"
-                  value={loginBase}
-                  onChange={(e) => setLoginBase(e.target.value)}
-                  placeholder="留空连接当前站点"
-                  autoComplete="url"
-                />
-              </Field>
-            </details>}
           </form>
         </main>
       ) : (
@@ -1601,7 +1558,6 @@ export default function App() {
               models={models}
               operations={caps?.operations}
               user={user}
-              isMock={isMock}
               busy={busy}
               pending={queuePending}
               quote={quote}
@@ -1616,7 +1572,7 @@ export default function App() {
               select={(row) => { setSelectedId(row.id); setBlankCanvas(false); }}
               renderImage={(row) => <ImageView row={row} />}
               preview={blankCanvas ? undefined : preview}
-              onSuggestTags={isGate ? suggestTags : undefined}
+              onSuggestTags={suggestTags}
               onLibrary={() => setShowLibrary("all")}
               onNegativeLibrary={() => setShowLibrary("negative")}
               onFinal={() => setShowFinal(true)}
@@ -1992,19 +1948,12 @@ export default function App() {
                     <dt>身份</dt>
                     <dd>{user.name}</dd>
                     <dt>服务</dt>
-                    <dd>{base || location.origin}</dd>
+                    <dd>{location.origin}</dd>
                     <dt>运行方式</dt>
-                    <dd>
-                      {isMock
-                        ? "本地模拟 · 不调用 NovelAI"
-                        : isGate ? "现有 Gate · 页面内串行队列" : "NovelAI · 实际能力待验证"}
-                    </dd>
-                    <dt>{isGate ? "可用 Anlas" : "个人可用额度"}</dt>
+                    <dd>现有 Gate · 页面内串行队列</dd>
+                    <dt>可用 Anlas</dt>
                     <dd>
                       {user.quota.remaining}{" "}
-                      {!isGate && <span className="muted">
-                        已用 {user.quota.used} · 预留 {user.quota.reserved}
-                      </span>}
                     </dd>
                     {userRefreshIssue && <><dt>账户状态</dt><dd role="status">暂时无法刷新，当前显示上次读取的数据。</dd></>}
                     {user.gate_quota && <><dt>今日 V5 可用</dt><dd>{user.gate_quota.v5Unlimited ? '未设张数限制' : `${user.gate_quota.v5LeftToday} 次`}</dd></>}
@@ -2049,92 +1998,10 @@ export default function App() {
                 <section>
                   <div className="settings-heading">
                     <Save size={19} />
-                    <h2>本地与服务器副本</h2>
+                    <h2>本机图库</h2>
                   </div>
-                  <p>{isGate ? '结果直接保存到当前浏览器，服务器不保留图片。批量生成时请保持页面打开，等待本机保存完成。' : '完整结果先暂存在服务器，再领取到本机图库。'}</p>
-                  {isGate ? <p className="muted small">本机图库按 Key 隔离。更换 Key、浏览器或访问地址前请导出备份，新 Key 下可导入恢复。</p> : storage ? (
-                    <>
-                      <label className="setting-toggle">
-                        <input
-                          type="checkbox"
-                          checked={storage.mode === "retain_until_expiry"}
-                          onChange={(e) =>
-                            setStorage((s) =>
-                              s
-                                ? {
-                                    ...s,
-                                    mode: e.target.checked
-                                      ? "retain_until_expiry"
-                                      : "delete_after_ack",
-                                  }
-                                : s,
-                            )
-                          }
-                        />
-                        <span>
-                          <b>本地保存后保留服务器副本</b>
-                          <small>
-                            {storage.mode === "retain_until_expiry"
-                              ? "保留到期，期间可重新领取。"
-                              : "本地保存成功后删除服务器副本。"}
-                          </small>
-                        </span>
-                      </label>
-                      <Field label="服务器暂存期限（小时）">
-                        <NumberInput
-                          label="暂存期限"
-                          value={storage.retention_hours}
-                          min={1}
-                          max={720}
-                          onChange={(n) =>
-                            setStorage((s) =>
-                              s ? { ...s, retention_hours: n } : s,
-                            )
-                          }
-                        />
-                      </Field>
-                      <button
-                        onClick={async () => {
-                          try {
-                            if (api) {
-                              const s = await api.request<StorageSettings>(
-                                "/settings",
-                                storage,
-                                "PUT",
-                              );
-                              setStorage(s);
-                              notify("保存策略已更新，对新任务生效");
-                              void refresh();
-                            }
-                          } catch (e) {
-                            fail(e);
-                          }
-                        }}
-                      >
-                        <Check size={15} />
-                        保存设置
-                      </button>
-                      <p className="muted small">
-                        变更只影响新任务；尚未领取的结果也会到期清理。
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <dl>
-                        <dt>保留策略</dt>
-                        <dd>
-                          {user.storage_policy.mode === "retain_until_expiry"
-                            ? "保留到期"
-                            : "本机保存后删除"}
-                        </dd>
-                        <dt>暂存期限</dt>
-                        <dd>{user.storage_policy.retention_hours} 小时</dd>
-                      </dl>
-                      <p className="muted small">
-                        保存策略由工作台维护者设置。
-                      </p>
-                    </>
-                  )}
+                  <p>结果直接保存到当前浏览器，服务器不保留图片。批量生成时请保持页面打开，等待本机保存完成。</p>
+                  <p className="muted small">本机图库按 Key 隔离。更换 Key、浏览器或访问地址前请导出备份，新 Key 下可导入恢复。</p>
                 </section>
                 <section>
                   <div className="settings-heading">
@@ -2168,9 +2035,6 @@ export default function App() {
                     本机图库不会自动跨设备同步。清除浏览器数据前请备份。
                   </p>
                 </section>
-                {user.is_admin && api && (
-                  <AccessManagement key={user.id} api={api} onError={fail} />
-                )}
               </div>
             </main>
           )}
@@ -2191,9 +2055,7 @@ export default function App() {
               <span className="status-right">
                 {user.name}
                 <span className="status-divider" />{" "}
-                {isMock
-                  ? "模拟输出不消耗 NAI 额度"
-                  : isGate ? `积分 ${user.quota.remaining} · 今日 V5 ${user.gate_quota?.v5Unlimited ? '不限' : `${user.gate_quota?.v5LeftToday ?? '—'} 次`}` : `剩余额度 ${user.quota.remaining}`}
+                {`积分 ${user.quota.remaining} · 今日 V5 ${user.gate_quota?.v5Unlimited ? '不限' : `${user.gate_quota?.v5LeftToday ?? '—'} 次`}`}
               </span>
             </footer>
           )}
@@ -2224,7 +2086,7 @@ export default function App() {
               </button>
             </header>
             <div className="queue-toolbar">
-              <span>{isGate ? "请保持页面打开；图片保存后继续下一张。最新任务显示在上方，执行仍按提交顺序。" : "关闭页面后，已提交的任务仍继续执行。"}</span>
+              <span>请保持页面打开；图片保存后继续下一张。最新任务显示在上方，执行仍按提交顺序。</span>
               <button
                 className="icon-button"
                 aria-label="刷新队列"
@@ -2233,7 +2095,7 @@ export default function App() {
                 <RefreshCw size={16} />
               </button>
             </div>
-            {isGate && <div className="queue-controls">
+            <div className="queue-controls">
               <span>{queuePending || queuePaused ? queueMessage : '队列按提交顺序执行'}</span>
               <button disabled={!queuePending && !queuePaused && !encodingPaused} onClick={async () => {
                 try {
@@ -2242,8 +2104,8 @@ export default function App() {
                   void refresh();
                 } catch (error) { fail(error); }
               }}>{queuePaused ? <Play size={14}/> : <Pause size={14}/>} {queuePaused ? "继续后续任务" : "暂停后续任务"}</button>
-            </div>}
-            {isGate && <div className="queue-server-summary" role="status"><GateQueueStatus monitor={serverQueue}/></div>}
+            </div>
+            <div className="queue-server-summary" role="status"><GateQueueStatus monitor={serverQueue}/></div>
             {(encodingRetryAt || encodingPaused) && <p className="queue-wait" role="status">{encodingPaused || queuePaused ? "Vibe 编码已暂停，继续后续任务后恢复。" : `Vibe 编码：${queueWaitLabel(encodingWaitReason)}，${countdown(encodingRetryAt)} 秒后自动重试。`}</p>}
             <div className="queue-list">
               {jobs.length ? (
@@ -2254,7 +2116,7 @@ export default function App() {
                         {job.status === "running" && (
                           <LoaderCircle size={12} className="spin" />
                         )}
-                        {(isGate && job.status === 'succeeded' && job.results.some(r => !r.acknowledged && !r.deleted) ? '生成完成' : undefined) || (isGate && gateJobLabel(job, queueNow)) || statusNames[job.status]}
+                        {(job.status === 'succeeded' && job.results.some(r => !r.acknowledged && !r.deleted) ? '生成完成' : undefined) || gateJobLabel(job, queueNow) || statusNames[job.status]}
                       </span>
                       <small>
                         {new Date(job.created_at * 1000).toLocaleTimeString()}

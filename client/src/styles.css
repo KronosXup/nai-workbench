@@ -336,27 +336,12 @@ svg {
   align-items: center;
   margin-left: auto;
 }
-.connection-indicator {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  font-size: 11px;
-  color: #6c6c6a;
-  white-space: nowrap;
-}
-.connection-indicator i,
 .status-bar > span > i {
   width: 5px;
   height: 5px;
   background: #828280;
   border-radius: 50%;
   display: inline-block;
-}
-.connection-indicator.mock {
-  color: #70706e;
-}
-.connection-indicator.mock i {
-  background: #a99c54;
 }
 .theme-switch {
   font-size: 11px;
@@ -972,7 +957,6 @@ svg {
   object-fit: contain;
   cursor: zoom-in;
 }
-.mock-image-label,
 .preview-frame > span {
   position: absolute;
   left: 50%;
@@ -1785,28 +1769,6 @@ svg {
   font-size: 16px;
   font-weight: 600;
 }
-.login-form .connection-extra {
-  margin-top: 6px;
-}
-.connection-extra summary {
-  min-height: 40px;
-  cursor: pointer;
-  list-style: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  color: var(--muted);
-  font-size: 13px;
-}
-.connection-extra summary::-webkit-details-marker {
-  display: none;
-}
-.connection-extra[open] summary svg {
-  transform: rotate(180deg);
-}
-.connection-extra .field {
-  margin-top: 8px;
-}
 .login-screen > .message-bar {
   top: 16px;
   width: min(440px, calc(100vw - 32px));
@@ -2243,12 +2205,6 @@ svg {
   font-size: 10px;
   background: #26283f;
 }
-.theme-official .connection-indicator {
-  color: #b9b5a0;
-}
-.theme-official .connection-indicator.mock i {
-  background: #c1b770;
-}
 .official-workspace {
   display: grid;
   grid-template-columns: 400px minmax(0, 1fr) auto;
@@ -2652,8 +2608,7 @@ svg {
 .theme-official .settings-grid p { color: var(--muted); font-size: 14px; }
 .theme-official .settings-grid dd { color: var(--ink); font-size: 14px; }
 .theme-official .settings-grid .small,
-.theme-official .setting-toggle small,
-.theme-official .issued-token > small { color: var(--muted); font-size: 12px; }
+.theme-official .setting-toggle small { color: var(--muted); font-size: 12px; }
 .theme-official .setting-toggle b { font-size: 14px; }
 .theme-official .layout-choices > button { color: var(--muted); }
 .theme-official .layout-choices > button.active { color: var(--yellow); }
@@ -2791,9 +2746,6 @@ svg {
   .header-right {
     gap: 8px;
   }
-  .connection-indicator {
-    font-size: 10px;
-  }
   .app-header nav button {
     min-width: 59px;
     padding: 0 9px;
@@ -2897,9 +2849,6 @@ svg {
   .header-right {
     margin-left: 0;
     gap: 7px;
-  }
-  .connection-indicator {
-    display: none;
   }
   .theme-switch {
     font-size: 9px;
@@ -3504,106 +3453,4 @@ svg {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 24px;
-}
-.access-management {
-  grid-column: 1/-1;
-}
-.access-management .settings-heading > .icon-button {
-  margin-left: auto;
-}
-.access-form {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.access-form .field {
-  margin: 0;
-  flex: 1;
-  max-width: 240px;
-}
-.access-form .field:nth-child(2) {
-  max-width: 140px;
-}
-.access-form > button {
-  height: 32px;
-  margin-bottom: 0;
-}
-.member-list {
-  margin-top: 20px;
-}
-.member-list > article {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 15px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--line);
-}
-.member-list article > div:first-child {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-.member-list b {
-  font-size: 12px;
-  font-weight: 550;
-}
-.member-list small {
-  font-size: 10px;
-  color: var(--muted);
-}
-.member-list article > div:last-child {
-  display: flex;
-  gap: 6px;
-}
-.member-list button {
-  font-size: 10px;
-  min-height: 25px;
-}
-.issued-token {
-  padding: 14px;
-  margin-top: 18px;
-  border: 1px solid #bdbda8;
-  background: #f2f2e3;
-}
-.issued-token > div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-}
-.issued-token b {
-  font-size: 12px;
-}
-.issued-token > small {
-  display: block;
-  margin: 10px 0;
-  color: #797967;
-}
-.issued-token > input {
-  font-family: Consolas, monospace;
-  font-size: 12px;
-}
-.theme-official .issued-token {
-  background: var(--control);
-  border-color: var(--line);
-}
-@media (max-width: 780px) {
-  .access-form {
-    gap: 10px;
-  }
-  .access-form .field {
-    max-width: none;
-    min-width: 140px;
-  }
-  .member-list {
-    overflow-wrap: anywhere;
-  }
-  .member-list button {
-    min-height: 32px;
-  }
-  .issued-token > input {
-    font-size: 13px !important;
-  }
 }

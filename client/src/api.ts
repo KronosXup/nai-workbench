@@ -34,12 +34,4 @@ export class Api {
     }
     return response.json() as Promise<T>;
   }
-  async content(id: string) {
-    const r = await fetch(
-      `${this.base.replace(/\/$/, "")}/api/results/${encodeURIComponent(id)}/content`,
-      { headers: { Authorization: `Bearer ${this.accessToken}` }, cache: "no-store" },
-    );
-    if (!r.ok) throw new Error(`图片领取失败 (${r.status})`);
-    return r.blob();
-  }
 }

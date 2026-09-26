@@ -10,8 +10,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(path.join(root, 'client', 'package.json'));
 const ts = require('typescript');
 const sourcePath = path.join(root, 'client', 'src', 'App.tsx');
+const sourceText = fs.readFileSync(sourcePath, 'utf8');
 const source = ts.createSourceFile(
-  sourcePath, fs.readFileSync(sourcePath, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX,
+  sourcePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX,
 );
 
 function actualModule(name) {
@@ -178,6 +179,12 @@ function harness() {
 }
 
 const checks = [
+  ['App accepts only a same-origin Gate connection', async () => {
+    assert.match(sourceText, /await verifyGateHealth\(\)/);
+    assert.match(sourceText, /new GateApi\("", access\.trim\(\)\)/);
+    assert.doesNotMatch(sourceText, /\bisGate\b|\bisMock\b|\bloginBase\b|new Api\(/);
+    assert.doesNotMatch(sourceText, /StorageSettings|\/admin\/users|["']\/settings/);
+  }],
   ['Background account refresh keeps cached data, reports locally and backs off after failures', async () => {
     let current = {id:'A', name:'Owner A', quota:{remaining:42}}, refreshIssue = false;
     const generation = {current:7};

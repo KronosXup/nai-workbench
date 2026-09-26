@@ -31,6 +31,8 @@ npm run dev
 
 打开 Vite 输出的本地地址（默认 `http://127.0.0.1:5173`）。Vite 将 `/api` 转发到本机 `127.0.0.1:8787`。登录使用 Gate 分配的 Key；工作台不接受官方 NAI Key，也不直连 NovelAI。
 
+服务入口为 `server/app/gate_bridge.py`，任务参数校验在 `task_validation.py`，图像请求和流式读取在 `adapters.py`。项目只维护 Gate 运行方式；模拟上游用于下述离线检查。
+
 ## 离线检查
 
 首次安装 Python 和 npm 依赖需要访问 PyPI 与 npm registry。安装完成后，从仓库根目录运行：

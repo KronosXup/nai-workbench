@@ -10,7 +10,6 @@ type Props = {
   onPage: (page: Page) => void;
   user: User;
   userRefreshIssue: boolean;
-  isMock: boolean;
   pending: number;
   onQueue: () => void;
   onLibrary: () => void;
@@ -118,7 +117,7 @@ export default function WorkspaceHeader(p: Props) {
       <div className="workspace-resources" aria-label="可用资源">
         <span className="workspace-resource" title={`当前可用积分：${pointsLabel}`}>
           <Coins size={15}/>
-          <span className="workspace-resource-copy"><small>积分</small><b>{pointsLabel}</b>{p.isMock && <small className="workspace-mock">模拟</small>}{p.userRefreshIssue && <small className="workspace-resource-stale" title="账户数据暂时无法刷新，当前显示上次读取的余额">待更新</small>}</span>
+          <span className="workspace-resource-copy"><small>积分</small><b>{pointsLabel}</b>{p.userRefreshIssue && <small className="workspace-resource-stale" title="账户数据暂时无法刷新，当前显示上次读取的余额">待更新</small>}</span>
         </span>
         {quota && <span className="workspace-resource" title={`Gate 分配给此 Key 的今日 V5 次数：${quota.v5Unlimited ? "不限" : `${quota.v5LeftToday.toLocaleString("zh-CN")} 次`}`}>
           <Images size={15}/>

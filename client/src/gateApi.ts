@@ -249,7 +249,7 @@ export class GateApi extends Api {
     }
     return super.request<T>(path, body, method, signal);
   }
-  override async content(id: string) {
+  async content(id: string) {
     const value = this.blobs.get(id);
     if (!value) throw new Error('结果已离开当前页面，请查看本机图库');
     return value;
