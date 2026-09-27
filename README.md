@@ -13,6 +13,8 @@
 
 ## 快速部署
 
+从零安装 Gate 和工作台、配置 HTTPS、创建 Key、备份及更新，见[完整部署教程](docs/DEPLOYMENT-GUIDE.md)。已有 Gate 可使用下面的快速部署。
+
 需要 Docker Compose v2，以及从工作台容器可访问的 Gate 服务。默认使用 GitHub Container Registry 的预构建镜像；首次部署不需要本地编译前端。
 
 默认 `beta` 镜像由预发布版本标签生成，也可由维护者从 `main` 手动发布；手动发布同时提供 `sha-...` 标签。稳定版标签还会更新 `latest`。

@@ -56,6 +56,7 @@ FIXED_FILES = (
     "docs/GATE-FRONTEND.md",
     "docs/GATE-COMPATIBILITY.md",
     "docs/DEVELOPMENT.md",
+    "docs/DEPLOYMENT-GUIDE.md",
     "pytest.ini",
     "scripts/package-gate-release.py",
     "scripts/generate-third-party-notices.py",
