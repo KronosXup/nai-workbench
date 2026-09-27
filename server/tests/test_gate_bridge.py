@@ -113,6 +113,8 @@ def test_bridge_auth_isolation_operations_no_storage_and_stream():
             return httpx.Response(401)
         if request.url.path == '/user/information':
             return httpx.Response(200,json={'username':'same-name'})
+        if request.url.path == '/v1/me':
+            return httpx.Response(404)
         assert request.url.path == '/user/subscription'
         return httpx.Response(200,json={'naiGate':dict(anlasMonthlyLimit=30,anlasLeft=20,v5LeftToday=8,v5DailyLimit=10,v5Unlimited=False,imageModelScope='all')})
 
@@ -194,6 +196,85 @@ def test_inpaint_quote_rejects_blank_and_subthreshold_masks_before_queueing():
                 assert response.status_code == 422
                 assert response.json()['detail'] == '蒙版没有选中可重绘的区域'
 
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('limit,used,admin,left,unlimited', [
+    (100, 7, False, 93, False), (100, 100, False, 0, False),
+    (100, 120, False, 0, False), (0, 7, False, 0, True),
+    (100, 7, True, 93, True),
+])
+def test_me_reports_dedicated_free_image_quota(limit, used, admin, left, unlimited):
+    async def gate(request):
+        if request.url.path == '/user/information':
+            return httpx.Response(200, json={'username': 'fixture'})
+        if request.url.path == '/user/subscription':
+            return httpx.Response(200, json={'naiGate': {'anlasMonthlyLimit': 100, 'anlasLeft': 80}})
+        assert request.url.path == '/v1/me'
+        # Total images must not be used to subtract paid/V5 images from this quota.
+        return httpx.Response(200, json={'is_admin': admin, 'today': {
+            'daily_images': limit, 'legacy_free_images_today': used, 'images': 999,
+        }})
+
+    async def run():
+        app = create_app('http://gate.fixture', httpx.MockTransport(gate))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://fixture') as client:
+            response = await client.get('/api/me', headers={'Authorization': 'Bearer fixture'})
+            assert response.status_code == 200
+            assert response.json()['gate_quota']['legacyFree'] == {
+                'dailyLimit': limit, 'usedToday': used, 'leftToday': left, 'unlimited': unlimited,
+            }
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('failure', [404, 405, 500, 429, 'timeout', 'bad-json', 'missing', 'invalid', 401, 403])
+def test_me_optional_quota_failure_never_means_unlimited(failure):
+    async def gate(request):
+        if request.url.path == '/user/information':
+            return httpx.Response(200, json={'username': 'fixture'})
+        if request.url.path == '/user/subscription':
+            return httpx.Response(200, json={'naiGate': {'anlasMonthlyLimit': 100, 'anlasLeft': 80}})
+        assert request.url.path == '/v1/me'
+        if isinstance(failure, int):
+            return httpx.Response(failure)
+        if failure == 'timeout':
+            raise httpx.ReadTimeout('fixture')
+        if failure == 'bad-json':
+            return httpx.Response(200, text='not json')
+        return httpx.Response(200, json={'today': {'daily_images': 100, 'images': 5,
+            **({'legacy_free_images_today': True} if failure == 'invalid' else {})}})
+
+    async def run():
+        app = create_app('http://gate.fixture', httpx.MockTransport(gate))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://fixture') as client:
+            response = await client.get('/api/me', headers={'Authorization': 'Bearer fixture'})
+            if failure in (401, 403):
+                assert response.status_code == failure
+            else:
+                assert response.status_code == 200
+                assert response.json()['gate_quota']['legacyFree'] is None
+                assert response.json()['quota']['remaining'] == 80
+    asyncio.run(run())
+
+
+def test_free_image_quota_refresh_is_isolated_by_key():
+    used = {'A': 7, 'B': 20}
+    async def gate(request):
+        token = request.headers['authorization'].removeprefix('Bearer ')
+        if request.url.path == '/user/information':
+            return httpx.Response(200, json={'username': 'same-name'})
+        if request.url.path == '/user/subscription':
+            return httpx.Response(200, json={'naiGate': {'anlasMonthlyLimit': 0, 'anlasLeft': 0}})
+        assert request.url.path == '/v1/me'
+        return httpx.Response(200, json={'today': {'daily_images': 100, 'legacy_free_images_today': used[token]}})
+
+    async def run():
+        app = create_app('http://gate.fixture', httpx.MockTransport(gate))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://fixture') as client:
+            for token, expected in [('A', 93), ('B', 80), ('A', 92)]:
+                response = await client.get('/api/me', headers={'Authorization': 'Bearer '+token})
+                assert response.json()['gate_quota']['legacyFree']['leftToday'] == expected
+                used[token] += 1
     asyncio.run(run())
 
 

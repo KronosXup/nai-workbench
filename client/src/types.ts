@@ -91,7 +91,8 @@ export type Job = Task & {
   retention_hours: number;
 };
 export type User = {
-  gate_quota?: { anlasLeft: number; anlasEnabled?: boolean; anlasMonthlyLimit?: number; isAdmin?: boolean; v5LeftToday: number; v5Unlimited: boolean; imageModelScope: string };
+  gate_quota?: { anlasLeft: number; anlasEnabled?: boolean; anlasMonthlyLimit?: number; isAdmin?: boolean; v5LeftToday: number; v5Unlimited: boolean; imageModelScope: string;
+    legacyFree?: { dailyLimit: number; usedToday: number; leftToday: number; unlimited: boolean } | null };
   id: string;
   name: string;
   quota: { limit: number; used: number; reserved: number; remaining: number };

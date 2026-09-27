@@ -226,8 +226,8 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
             raise HTTPException(401, '请填写 Gate 分配的 Key')
         return raw[7:]
 
-    async def gate_get(path, token):
-        async with httpx.AsyncClient(base_url=gate_url, timeout=15, follow_redirects=False, trust_env=False, transport=transport) as client:
+    async def gate_get(path, token, *, timeout=15):
+        async with httpx.AsyncClient(base_url=gate_url, timeout=timeout, follow_redirects=False, trust_env=False, transport=transport) as client:
             try:
                 response = await client.get(path, headers={'Authorization':'Bearer '+token})
             except httpx.HTTPError:
@@ -236,6 +236,28 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
             raise HTTPException(response.status_code if response.status_code in (401,403,429) else 502,
                                 {401:'Key 无效或已更换',403:'Key 已禁用或过期',429:'请求过于频繁'}.get(response.status_code, 'Gate 暂时不可用'))
         return response.json()
+
+    async def legacy_free_quota(token):
+        # /v1/me reads Gate's local counters, not the official account. Older
+        # Gate versions may omit the dedicated free-image counter: never use
+        # total images instead, since those also include paid images and V5.
+        try:
+            info = await gate_get('/v1/me', token, timeout=4)
+            today = info.get('today', {})
+            limit, used = today.get('daily_images'), today.get('legacy_free_images_today')
+            if any(type(value) is not int or value < 0 for value in (limit, used)):
+                return None
+            unlimited = info.get('is_admin') is True or limit == 0
+            return dict(dailyLimit=limit, usedToday=used,
+                        leftToday=max(0, limit-used), unlimited=unlimited)
+        except HTTPException as exc:
+            if exc.status_code in (401, 403):
+                raise
+        except (ValueError, TypeError, AttributeError):
+            pass
+        # Missing or temporarily unavailable counts must not prevent login,
+        # and must not be presented as an unlimited allowance.
+        return None
 
     async def fetch_gate_identity(digest, token):
         current = asyncio.current_task()
@@ -412,7 +434,7 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
         token = credential(request)
         username = await gate_username(token)
         subscription = await gate_get('/user/subscription', token)
-        quota = subscription['naiGate']
+        quota = dict(subscription['naiGate'], legacyFree=await legacy_free_quota(token))
         return dict(id='gate-'+hashlib.sha256(token.encode()).hexdigest(), name=username, is_admin=False,
                     quota=dict(limit=quota['anlasMonthlyLimit'], used=0, reserved=0, remaining=quota['anlasLeft']),
                     gate_quota=quota, storage_policy=dict(mode='browser', retention_hours=0))

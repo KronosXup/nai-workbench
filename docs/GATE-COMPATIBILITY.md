@@ -7,6 +7,7 @@
 |---|---|
 | 验证 Key、读取权限 | `GET /user/information` |
 | 显示积分与 V5 额度 | `GET /user/subscription` |
+| 显示 V4.5 及以下每日免费图剩余 | `GET /v1/me` |
 | 显示服务器排队状态 | `GET /queue-status` |
 | 生图与流式预览 | `POST /ai/generate-image`、`POST /ai/generate-image-stream` |
 | 编码 Vibe | `POST /ai/encode-vibe` |
@@ -14,6 +15,8 @@
 | 提示词建议 | `GET /ai/generate-image/suggest-tags` |
 
 适配服务会读取订阅响应中的 `naiGate` 扩展字段，包括 Anlas 余额、月限额和 V5 每日额度；排队状态使用 `global` 与 `image_cooldown_remaining`。仅提供 OpenAI 兼容接口的服务无法替代这些接口。
+
+每日免费图剩余使用 `/v1/me` 的 `today.daily_images` 和 `today.legacy_free_images_today`，不使用包含付费图和 V5 的总图片数。上限为 0 表示不限；旧版 Gate 缺少接口或字段时显示“暂不可用”，其他功能仍可使用。此查询只读取 Gate 本地记录。
 
 ## 费用与功能
 

@@ -63,7 +63,7 @@ import ReferenceImages from "./ReferenceImages";
 import DirectorWorkspace from "./DirectorWorkspace";
 import { directorFromJob, directorMatchesJob, directorSourceIssue, migrateDirectorDraft, readDirectorDraft } from "./director";
 import type { DirectorDraft, DirectorSource } from "./director";
-import WorkspaceHeader from "./WorkspaceHeader";
+import WorkspaceHeader, { legacyFreeLabel } from "./WorkspaceHeader";
 import { composePrompts } from "./promptPresets";
 import { generationParameters, modelGenerationDefaults } from "./modelSettings";
 import TokenMeter from "./TokenMeter";
@@ -1991,7 +1991,8 @@ export default function App() {
                       {user.quota.remaining}{" "}
                     </dd>
                     {userRefreshIssue && <><dt>账户状态</dt><dd role="status">暂时无法刷新，当前显示上次读取的数据。</dd></>}
-                    {user.gate_quota && <><dt>今日 V5 可用</dt><dd>{user.gate_quota.v5Unlimited ? '未设张数限制' : `${user.gate_quota.v5LeftToday} 次`}</dd></>}
+                    {user.gate_quota && <><dt>今日免费图（V4.5 及以下）</dt><dd>{legacyFreeLabel(user.gate_quota)}</dd>
+                      <dt>今日 V5 可用</dt><dd>{user.gate_quota.v5Unlimited ? '未设张数限制' : `${user.gate_quota.v5LeftToday} 次`}</dd></>}
                   </dl>
                   <button onClick={disconnect}>
                     <LogOut size={15} />
@@ -2090,7 +2091,7 @@ export default function App() {
               <span className="status-right">
                 {user.name}
                 <span className="status-divider" />{" "}
-                {`积分 ${user.quota.remaining} · 今日 V5 ${user.gate_quota?.v5Unlimited ? '不限' : `${user.gate_quota?.v5LeftToday ?? '—'} 次`}`}
+                {`积分 ${user.quota.remaining} · 今日免费图 ${legacyFreeLabel(user.gate_quota)} · 今日 V5 ${user.gate_quota?.v5Unlimited ? '不限' : `${user.gate_quota?.v5LeftToday ?? '—'} 次`}`}
               </span>
             </footer>
           )}

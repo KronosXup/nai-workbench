@@ -39,6 +39,8 @@ def identity_response(request, calls):
             'anlasMonthlyLimit': 100, 'anlasLeft': 80, 'v5LeftToday': 10,
             'v5DailyLimit': 10, 'v5Unlimited': False, 'imageModelScope': 'all',
         }})
+    if request.url.path == '/v1/me':
+        return httpx.Response(404)
     raise AssertionError(f'unexpected Gate request: {request.url.path}')
 
 
@@ -385,6 +387,8 @@ def test_gate_identity_lookup_concurrency_is_bounded(monkeypatch):
                 'anlasMonthlyLimit': 100, 'anlasLeft': 80, 'v5LeftToday': 10,
                 'v5DailyLimit': 10, 'v5Unlimited': False, 'imageModelScope': 'all',
             }})
+        if request.url.path == '/v1/me':
+            return httpx.Response(404)
         raise AssertionError(f'unexpected Gate request: {request.url.path}')
 
     async def run():

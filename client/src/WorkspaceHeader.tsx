@@ -1,10 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, Clapperboard, Clock, Coins, FolderOpen, Grid2X2, Images, Layers, Menu, Paintbrush, Palette, Settings2, Sparkles } from "lucide-react";
+import { ArrowLeft, Clapperboard, Clock, Coins, FolderOpen, Grid2X2, Image as ImageIcon, Images, Layers, Menu, Paintbrush, Palette, Settings2, Sparkles } from "lucide-react";
 import type { User } from "./types";
 import "./workspace-header.css";
 
 type Page = "draw" | "director" | "batch" | "gallery" | "settings";
+
+export function legacyFreeLabel(quota: User['gate_quota']) {
+  const free = quota?.legacyFree;
+  return !free ? '暂不可用' : free.unlimited ? '不限' : `${free.leftToday.toLocaleString('zh-CN')} 张`;
+}
 type Props = {
   page: Page;
   onPage: (page: Page) => void;
@@ -119,6 +124,10 @@ export default function WorkspaceHeader(p: Props) {
           <Coins size={15}/>
           <span className="workspace-resource-copy"><small>积分</small><b>{pointsLabel}</b>{p.userRefreshIssue && <small className="workspace-resource-stale" title="账户数据暂时无法刷新，当前显示上次读取的余额">待更新</small>}</span>
         </span>
+        {quota && <span className="workspace-resource" title={`V4.5 及以下今日免费图剩余：${legacyFreeLabel(quota)}`}>
+          <ImageIcon size={15}/>
+          <span className="workspace-resource-copy"><small>免费图 今日</small><b>{legacyFreeLabel(quota)}</b></span>
+        </span>}
         {quota && <span className="workspace-resource" title={`Gate 分配给此 Key 的今日 V5 次数：${quota.v5Unlimited ? "不限" : `${quota.v5LeftToday.toLocaleString("zh-CN")} 次`}`}>
           <Images size={15}/>
           <span className="workspace-resource-copy"><small>V5 今日</small><b>{v5Label}</b></span>
