@@ -1,0 +1,157 @@
+.nai-shell .nai-sidebar .cp-root {
+  margin-top: 10px;
+  color: var(--nai-ink, #e2e3ee);
+  font-size: 13px;
+}
+.nai-shell .nai-sidebar .cp-intro { padding: 12px; margin-bottom: 10px; border: 1px solid var(--nai-line); border-radius: 6px; }
+
+.nai-shell .nai-sidebar .cp-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 2px 7px;
+}
+.nai-shell .nai-sidebar .cp-heading strong { font-size: 14px; font-weight: 600; }
+.nai-shell .nai-sidebar .cp-heading p { margin: 3px 0 0; color: var(--nai-muted, #9b9eb6); font-size: 11px; line-height: 1.4; }
+
+.nai-shell .nai-sidebar .cp-gender-picker { position: relative; flex: none; }
+.nai-shell .nai-sidebar .cp-gender-picker > summary {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 5px;
+  border: 1px solid var(--nai-line, #30334e);
+  border-radius: 5px;
+  background: var(--nai-control, #20233d);
+  color: var(--nai-ink, #e2e3ee);
+  cursor: pointer;
+  list-style: none;
+}
+.nai-shell .nai-sidebar .cp-gender-picker > summary::-webkit-details-marker { display: none; }
+.nai-shell .nai-sidebar .cp-gender-picker > summary svg { width: 16px; height: 16px; }
+.nai-shell .nai-sidebar .cp-gender-menu {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 5px);
+  right: 0;
+  display: grid;
+  min-width: 82px;
+  padding: 4px;
+  border: 1px solid var(--nai-line, #30334e);
+  border-radius: 6px;
+  background: var(--nai-card, #191b31);
+  box-shadow: 0 8px 24px #08091499;
+}
+.nai-shell .nai-sidebar .cp-gender-picker:not([open]) > .cp-gender-menu { display: none; }
+.nai-shell .nai-sidebar .cp-gender-menu button { min-height: 30px; justify-content: flex-start; padding: 5px 9px; border: 0; background: transparent; text-align: left; font-size: 12px; }
+.nai-shell .nai-sidebar .cp-gender-menu button:hover { background: var(--nai-control, #20233d); }
+.nai-shell .nai-sidebar .cp-gender-menu button svg { width: 16px; height: 16px; flex: none; }
+
+.nai-shell .nai-sidebar .cp-list { display: grid; gap: 7px; }
+.nai-shell .nai-sidebar .cp-card {
+  min-width: 0;
+  overflow: visible;
+  border: 1px solid var(--nai-line, #30334e);
+  border-radius: 7px;
+  background: var(--nai-card, #191b31);
+}
+.nai-shell .nai-sidebar .cp-card.is-disabled { opacity: .58; }
+.nai-shell .nai-sidebar .cp-card-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 0 6px;
+  background: var(--nai-bg, #191a30);
+  border-radius: 6px 6px 0 0;
+}
+.nai-shell .nai-sidebar .cp-gender-icon { display: grid; place-items: center; width: 27px; height: 27px; flex: none; color: var(--nai-muted, #9b9eb6); }
+.nai-shell .nai-sidebar .cp-gender-icon svg { width: 16px; height: 16px; }
+.nai-shell .nai-sidebar .cp-name {
+  flex: 1;
+  width: 0;
+  min-width: 35px;
+  height: 28px;
+  min-height: 0;
+  padding: 3px 5px;
+  border: 0 !important;
+  border-radius: 3px;
+  background: transparent !important;
+  color: var(--nai-ink, #e2e3ee);
+  font-size: 12px;
+  font-weight: 600;
+}
+.nai-shell .nai-sidebar .cp-name:focus { outline: 1px solid var(--nai-line, #30334e); }
+.nai-shell .nai-sidebar .cp-card-actions { display: flex; align-items: center; gap: 1px; flex: none; }
+.nai-shell .nai-sidebar .cp-card-actions button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  min-width: 30px;
+  height: 32px;
+  min-height: 32px;
+  padding: 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--nai-muted, #9b9eb6);
+}
+.nai-shell .nai-sidebar .cp-card-actions button:hover:not(:disabled) { background: var(--nai-control, #20233d); color: var(--nai-ink, #e2e3ee); }
+.nai-shell .nai-sidebar .cp-card-actions button:disabled { opacity: .35; }
+.nai-shell .nai-sidebar .cp-card-actions button.is-enabled { color: var(--nai-accent, #e9e5b9); }
+.nai-shell .nai-sidebar .cp-card-actions button[aria-pressed="false"] { opacity: .58; }
+.nai-shell .nai-sidebar .cp-card-actions svg { width: 15px; height: 15px; }
+
+.nai-shell .nai-sidebar .cp-summary {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 27px;
+  padding: 2px 11px 8px 39px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--nai-muted, #9b9eb6);
+  text-align: left;
+  font-size: 11px;
+}
+.nai-shell .nai-sidebar .cp-summary > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nai-shell .nai-sidebar .cp-disabled-label { flex: none; color: #e2b28c; }
+.nai-shell .nai-sidebar .cp-card-body { display: grid; gap: 7px; padding: 10px 12px; }
+.nai-shell .nai-sidebar .cp-disabled-note { margin: 0; color: #e2b28c; font-size: 11px; }
+.nai-shell .nai-sidebar .cp-tabs { display: flex; align-items: center; gap: 7px; }
+.nai-shell .nai-sidebar .cp-tabs button {
+  width: auto;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--nai-muted, #9b9eb6);
+  font-size: 14px;
+}
+.nai-shell .nai-sidebar .cp-tabs button[aria-pressed="true"] { border-color: var(--nai-line, #30334e); background: var(--nai-control, #20233d); color: var(--nai-accent, #e9e5b9); }
+.nai-shell .nai-sidebar .cp-card-body .nai-tag-input { min-width: 0; }
+.nai-shell .nai-sidebar .cp-card-body .nai-prompt-input { min-height: 54px; padding: 7px 8px; font-size: 16px; line-height: 1.45; }
+.nai-shell .nai-sidebar .cp-card-body .nai-token-meter { min-height: 4px; }
+.nai-shell .nai-sidebar .cp-card-body .nai-token-meter .nai-token-tooltip { font-size: 10px; }
+
+.nai-shell .nai-sidebar .cp-position-row { display: flex; align-items: center; gap: 7px; margin-top: 8px; color: var(--nai-muted); }
+.nai-shell .nai-sidebar .cp-segmented { display: inline-flex; flex: 1; padding: 2px; border: 1px solid var(--nai-line, #30334e); border-radius: 5px; background: transparent; }
+.nai-shell .nai-sidebar .cp-segmented button { flex: 1; width: auto; min-height: 27px; padding: 4px 9px; border: 0; background: transparent; color: var(--nai-muted, #9b9eb6); font-size: 12px; }
+.nai-shell .nai-sidebar .cp-segmented button[aria-pressed="true"] { border-radius: 3px; background: var(--nai-control, #20233d); color: var(--nai-accent, #e9e5b9); }
+.nai-shell .nai-sidebar .cp-position-edit { display: grid; place-items: center; width: 31px; min-width: 31px; height: 31px; min-height: 31px; padding: 6px; }
+.nai-shell .nai-sidebar .cp-position-edit svg { width: 16px; height: 16px; }
+
+@media (max-width: 420px) {
+  .nai-shell .nai-sidebar .cp-card-header { gap: 2px; padding-inline: 4px; }
+  .nai-shell .nai-sidebar .cp-card-actions { gap: 0; }
+  .nai-shell .nai-sidebar .cp-card-actions button { width: 24px; min-width: 24px; }
+  .nai-shell .nai-sidebar .cp-name { padding-inline: 3px; }
+  .nai-shell .nai-sidebar .cp-card-body { padding-inline: 7px; }
+}

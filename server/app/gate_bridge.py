@@ -19,8 +19,9 @@ from PIL import Image
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from .adapters import AdapterError, NaiAdapter
+from .adapters import MAX_IMAGE_PIXELS, AdapterError, NaiAdapter
 from .config import Settings
+from .inpaint import validate_mask_selection
 from .model_policy import effective_model_for_operation
 from .task_validation import validate_task
 
@@ -53,6 +54,8 @@ GATE_IDENTITY_FAILURE_CACHE_TTL_SECONDS = 2
 GATE_IDENTITY_CACHE_MAX_ENTRIES = 256
 GATE_IDENTITY_LOOKUP_MAX_CONCURRENCY = 4
 GATE_IDENTITY_LOOKUP_RATE_PER_WINDOW = 240
+MASK_PREFLIGHT_CACHE_MAX_ENTRIES = 32
+_mask_preflight_cache = OrderedDict()
 
 
 def _security_now():
@@ -83,11 +86,49 @@ def _queue_status_payload(raw):
     return {'global': counts, 'image_cooldown_remaining': cooldown}
 
 
+def _preflight_inpaint_mask(parameters):
+    """Reject masks whose exact generation-grid selection is empty."""
+    source_value, mask_value = parameters.get('image'), parameters.get('mask')
+    if not isinstance(source_value, str) or not isinstance(mask_value, str):
+        raise HTTPException(422, '局部重绘需要有效的源图和蒙版')
+    try:
+        source_data = base64.b64decode(source_value, validate=True)
+        mask_data = base64.b64decode(mask_value, validate=True)
+        with Image.open(io.BytesIO(source_data)) as source:
+            source_size = source.size
+            if (source.format not in {'PNG', 'JPEG', 'WEBP'}
+                    or source.width * source.height > MAX_IMAGE_PIXELS):
+                raise ValueError('source')
+    except Exception:
+        raise HTTPException(422, '局部重绘源图或蒙版格式无效') from None
+
+    cache_key = (hashlib.sha256(mask_value.encode('ascii')).digest(), source_size,
+                 parameters.get('width'), parameters.get('height'))
+    if cache_key in _mask_preflight_cache:
+        error = _mask_preflight_cache[cache_key]
+        _mask_preflight_cache.move_to_end(cache_key)
+    else:
+        try:
+            validate_mask_selection(mask_data, source_size, parameters['width'], parameters['height'])
+            error = None
+        except ValueError as exc:
+            error = str(exc)
+        except Exception:
+            error = '局部重绘蒙版格式无效'
+        _mask_preflight_cache[cache_key] = error
+        while len(_mask_preflight_cache) > MASK_PREFLIGHT_CACHE_MAX_ENTRIES:
+            _mask_preflight_cache.popitem(last=False)
+    if error:
+        raise HTTPException(422, error)
+
+
 def estimate(task):
     """Display estimate, not an authorization or billing decision."""
     p = task['parameters']
     if task['operation'] == 'encode_vibe':
         return dict(units=2, unit_label='积分', verified=False, message='编码预计 2 积分；以 Gate 实际结算为准。')
+    if task['operation'] == 'inpaint':
+        _preflight_inpaint_mask(p)
     w, h, steps = p['width'], p['height'], p['steps']
     if task['operation'] in ('upscale', 'augment'):
         try:

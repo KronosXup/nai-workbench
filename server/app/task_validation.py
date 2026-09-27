@@ -147,7 +147,10 @@ def validate_task(raw: dict, settings: Settings) -> dict:
         if not isinstance(chars, list) or len(chars) > character_limit:
             fail(422, f"此模型最多接受 {character_limit} 项独立角色提示词")
         for char in chars:
-            if not isinstance(char, dict) or not isinstance(char.get("prompt", ""), str):
+            if (not isinstance(char, dict)
+                    or not isinstance(char.get("prompt", ""), str)
+                    or not isinstance(char.get("negative_prompt", ""), str)
+                    or ("enabled" in char and type(char["enabled"]) is not bool)):
                 fail(422, "角色提示词无效")
             for axis in ("x", "y"):
                 if axis in char:

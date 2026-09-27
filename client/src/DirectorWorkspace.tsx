@@ -166,10 +166,7 @@ export default function DirectorWorkspace(p: Props) {
   }, []);
 
   function chooseTool(id: (typeof visibleTools)[number]["id"]) {
-    const tool: DirectorTool = id === "declutter"
-      ? state.tool === "declutter-keep-bubbles" ? "declutter-keep-bubbles" : "declutter"
-      : id;
-    p.onChange({ tool });
+    p.onChange({ tool: id });
   }
 
   function chooseMobileTool(value: string) {
@@ -254,7 +251,7 @@ export default function DirectorWorkspace(p: Props) {
         </div>
 
         <footer className="director-controls" aria-label="工具和参数">
-        {(hasPrompt || state.tool === "declutter" || state.tool === "declutter-keep-bubbles") && (
+        {hasPrompt && (
           <div className="director-detail-row">
             {state.tool === "emotion" && <p className="director-emotion-note">仅适用于动漫图片，建议从中性表情原图开始。</p>}
             {state.tool === "colorize" && <div className="director-colorize-field">
@@ -281,10 +278,6 @@ export default function DirectorWorkspace(p: Props) {
             {hasPrompt && <label className="director-prompt-field">
               <span>{state.tool === "colorize" ? "补充上色描述 · 可选" : "补充表情描述 · 可选"}</span>
               <textarea value={state.prompt} rows={1} onChange={(event) => p.onChange({ prompt: event.target.value })} />
-            </label>}
-            {(state.tool === "declutter" || state.tool === "declutter-keep-bubbles") && <label className="director-bubbles-field">
-              <input type="checkbox" checked={state.tool === "declutter-keep-bubbles"} onChange={(event) => p.onChange({ tool: event.target.checked ? "declutter-keep-bubbles" : "declutter" })} />
-              <span>保留气泡</span>
             </label>}
           </div>
         )}
@@ -315,7 +308,7 @@ export default function DirectorWorkspace(p: Props) {
             {issue ? <span className="is-error">{issue}</span>
               : quoteError ? <><span className={quoteError.blocksSubmit ? "is-error" : ""}>{quoteError.message}{quoteError.connection ? " · 请检查连接" : ""}</span>{quoteError.retryable && <button type="button" onClick={() => setQuoteRefresh((n) => n + 1)}>重试报价</button>}</>
                 : matchingJob && matchingPending ? <span>{jobStatusLabel(matchingJob)} · {toolNames[state.tool]}</span>
-                  : !quote ? <span>正在获取当前工具的报价…</span> : null}
+                  : null}
           </div>
           <button className="director-submit" type="button" title={quote?.message || quoteError?.message || estimateLabel} disabled={submitBlocked || p.busy} onClick={submit}>
             {(p.busy || matchingWorking) && <LoaderCircle size={17} className="director-spin" />}

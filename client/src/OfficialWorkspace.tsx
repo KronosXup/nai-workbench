@@ -14,7 +14,6 @@ import {
   Grid2X2,
   LoaderCircle,
   Paintbrush,
-  Plus,
   Settings2,
   SlidersHorizontal,
   Sprout,
@@ -31,6 +30,8 @@ import { samplersFor, defaultNoiseSchedule, noiseSchedulesFor } from "./modelSet
 import { ucOptions, presetLabels, hasFurryTag, removeFurryTag, mapUcPreset } from "./promptPresets";
 import PromptChunks from "./PromptChunks";
 import AdvancedSettings from "./AdvancedSettings";
+import CharacterPrompts from "./CharacterPrompts";
+import CharacterPositions from "./CharacterPositions";
 import TokenMeter from "./TokenMeter";
 import TagInput from "./TagInput";
 import type { TagSuggestion } from "./TagInput";
@@ -59,7 +60,7 @@ type Props = {
   blankCanvasSignal?: number;
   quoteRequest: () => void;
   submit: () => void;
-  characters: ReactNode;
+  onResetGenerationSettings: () => void;
   references: ReactNode;
   rows: LocalImage[];
   selected?: LocalImage;
@@ -122,7 +123,10 @@ export default function OfficialWorkspace(p: Props) {
   const [advanced, setAdvanced] = useState(false);
   const [auxiliary, setAuxiliary] = useState(false);
   const [promptTools, setPromptTools] = useState(false);
-  const [panel, setPanel] = useState<"characters" | null>(null);
+  const [positionsOpen, setPositionsOpen] = useState(false);
+  useEffect(() => {
+    if (!p.draft.model.startsWith('nai-diffusion-4') && !p.draft.model.startsWith('nai-diffusion-5')) setPositionsOpen(false);
+  }, [p.draft.model]);
   const mobile = p.mobile;
   const setMobile = p.onMobileChange;
   const [welcome, setWelcome] = useState(false);
@@ -184,8 +188,7 @@ export default function OfficialWorkspace(p: Props) {
   function showConfiguration() {
     const target = p.configurationIssue?.target ?? 'settings';
     setMobile('edit');
-    if (target === 'characters') setPanel('characters');
-    else if (target === 'settings') setAdvanced(true);
+    if (target === 'settings') setAdvanced(true);
     // Uploaded references stay expanded in their own cards.
     requestAnimationFrame(() => document.getElementById((target === 'settings' ? 'nai-generation-settings' : `nai-${target}-settings`))?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
   }
@@ -305,7 +308,7 @@ export default function OfficialWorkspace(p: Props) {
             {p.draft.promptLayout === "tabs" && <div className="nai-prompt-tabs"><button aria-pressed={promptTab === "positive"} onClick={()=>setPromptTab("positive")}>正面</button><button aria-pressed={promptTab === "negative"} onClick={()=>setPromptTab("negative")}>负面</button></div>}
             <section className="nai-prompt-section" hidden={p.draft.promptLayout === "tabs" && promptTab !== "positive"}>
               <div className="nai-card-heading">
-                <b>提示词</b>
+                <b>{params.character_prompts.length ? "基础提示词" : "提示词"}</b>
                 <div>
                   <button aria-label="提示词工具" title="预设、辅助提示词与显示方式" aria-expanded={promptTools} onClick={()=>setPromptTools(!promptTools)}><Settings2 size={17}/></button>
                 </div>
@@ -405,44 +408,18 @@ export default function OfficialWorkspace(p: Props) {
           </details>
           <PromptChunks draft={p.draft} patch={p.patch} tagSuggestionsUnavailable={tagSuggestionsUnavailable || !p.onSuggestTags}/>
           </div>}
-          <div className="nai-feature-card">
-            <div>
-              <b>角色提示词</b>
-              <p>为画面中的每个角色单独设置提示词。</p>
-            </div>
-            <button
-              aria-label="添加角色提示词"
-              disabled={
-                params.character_prompts.length >=
-                (p.models.find((m) => m.id === effectiveModel)?.max_characters ??
-                  6)
-              }
-              onClick={() => {
-                p.setParam("character_prompts", [
-                  ...params.character_prompts,
-                  { prompt: "", negative_prompt: "", x: 0.5, y: 0.5 },
-                ]);
-                setPanel("characters");
-              }}
-            >
-              <Plus size={24} />
-            </button>
-          </div>
-          {params.character_prompts.length > 0 && (
-            <button
-              className="nai-feature-toggle"
-              aria-expanded={panel === "characters"}
-              onClick={() =>
-                setPanel(panel === "characters" ? null : "characters")
-              }
-            >
-              {params.character_prompts.length} 个角色
-              <ChevronDown size={14} />
-            </button>
-          )}
-          {panel === "characters" && (
-            <div id="nai-characters-settings" className="nai-expanded-panel">{p.characters}</div>
-          )}
+          <CharacterPrompts
+            characters={params.character_prompts}
+            useCoords={params.use_coords === true}
+            maxCharacters={p.models.find(m => m.id === effectiveModel)?.max_characters ?? 6}
+            model={effectiveModel}
+            basePrompt={composedPrompt.prompt}
+            baseNegative={composedPrompt.negative}
+            onChange={characters => p.setParam("character_prompts", characters)}
+            onUseCoordsChange={enabled => { p.setParam("use_coords", enabled); if (!enabled) setPositionsOpen(false); }}
+            onEditPositions={() => { p.setParam("use_coords", true); setPositionsOpen(true); setMobile('result'); }}
+            onSuggestTags={p.draft.tagSuggestionsDisabled || tagSuggestionsUnavailable ? undefined : p.onSuggestTags ? (_model, fragment) => p.onSuggestTags!(tagModel, fragment) : undefined}
+          />
           </>}
           {!generation && <section className="nai-prompt-card"><h2>{labels[p.draft.operation]}</h2><button onClick={p.onFinal}>查看发送内容</button></section>}
           {p.references}
@@ -527,7 +504,7 @@ export default function OfficialWorkspace(p: Props) {
         <footer className="nai-footer">
           {advanced && generation && <AdvancedSettings model={effectiveModel} params={params}
             patch={changes => p.patch({parameters:{...params,...changes}})}
-            onSampler={selectSampler} onClose={() => setAdvanced(false)}/>}
+            onSampler={selectSampler} onReset={p.onResetGenerationSettings} onClose={() => setAdvanced(false)}/>}
           {generation && !advanced && <div className="nai-parameter-summary">
             <label>
               步数
@@ -536,7 +513,7 @@ export default function OfficialWorkspace(p: Props) {
                 params.steps,
                 (n) => p.setParam("steps", n),
                 1,
-                50,
+                100,
               )}
             </label>
             <label>
@@ -546,7 +523,7 @@ export default function OfficialWorkspace(p: Props) {
                 params.scale,
                 (n) => p.setParam("scale", n),
                 0,
-                20,
+                30,
                 0.1,
               )}
             </label>
@@ -625,7 +602,7 @@ export default function OfficialWorkspace(p: Props) {
         </footer>
       </aside>
       <section className="nai-main">
-        {!history && (
+        {!positionsOpen && !history && (
           <button
             className="nai-open-history"
             aria-label="打开历史记录"
@@ -640,7 +617,11 @@ export default function OfficialWorkspace(p: Props) {
             {p.pending} 项任务
           </button>
         )}
-        {showSource && params.image && !p.preview ? (
+        {positionsOpen && generation ? <CharacterPositions
+          characters={params.character_prompts} width={params.width} height={params.height} model={effectiveModel}
+          onChange={characters => p.setParam("character_prompts", characters)}
+          onClose={() => { setPositionsOpen(false); setMobile('edit'); }}
+        /> : showSource && params.image && !p.preview ? (
           <><div className="nai-stage"><img src={`data:image/png;base64,${params.image}`} alt="当前源图片"/><span className="nai-output-label">当前源图片</span></div>{selected && <button onClick={() => setShowSource(false)}>查看生成结果</button>}</>
         ) : selected || p.preview ? (
           <>

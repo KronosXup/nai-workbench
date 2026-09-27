@@ -120,6 +120,26 @@ def test_v5_curated_inpaint_uses_six_character_limit_but_normal_v5_keeps_32():
     reject(normal)
 
 
+@pytest.mark.parametrize("field,value", [
+    ("negative_prompt", None),
+    ("negative_prompt", 1),
+    ("negative_prompt", {"unexpected": "object"}),
+    ("enabled", None),
+    ("enabled", 0),
+    ("enabled", "false"),
+])
+def test_character_prompt_negative_and_enabled_fields_are_type_checked(field, value):
+    payload = task()
+    payload["parameters"]["character_prompts"] = [{"prompt": "character", field: value}]
+    reject(payload)
+
+
+def test_character_prompt_optional_negative_and_enabled_defaults_remain_accepted():
+    payload = task()
+    payload["parameters"]["character_prompts"] = [{"prompt": "character"}]
+    assert validate_task(payload, Settings())["parameters"]["character_prompts"] == [{"prompt": "character"}]
+
+
 def test_validation_copies_input_and_enforces_stream_image_mask_and_payload_limits():
     payload = task(operation="inpaint")
     payload["parameters"].update(image=IMAGE, mask=IMAGE, stream=True)

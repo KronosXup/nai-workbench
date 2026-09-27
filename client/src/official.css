@@ -349,30 +349,47 @@
   .nai-shell .nai-parameter-summary strong { font-size: 14px; }
   .nai-shell .nai-size-row > .nai-resolution-select { flex-basis: 105px; width: 105px; }
 }
-.theme-official .image-import-modal { width: min(760px, calc(100vw - 24px)); }
-.theme-official .image-import-modal header small { display: block; margin-top: 4px; max-width: 580px; overflow-wrap: anywhere; color: var(--muted); font-size: 12px; letter-spacing: 0; }
-.theme-official .image-import-modal header button { flex: none; padding: 7px; }
-.image-import-modal .import-source { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 20px; align-items: start; }
-.image-import-modal .import-source img { width: 100%; max-height: 220px; object-fit: contain; border-radius: 5px; background: #0c0d1b; }
-.image-import-modal .import-source p { margin: 0 0 12px; }
-.image-import-modal .import-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
-.image-import-modal .import-actions button { justify-content: center; min-height: 42px; padding: 9px 7px; gap: 7px; font-size: 13px; }
-.image-import-modal .import-metadata { border-top: 1px solid var(--line); margin-top: 22px; padding-top: 18px; }
-.image-import-modal h3 { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 17px; }
-.image-import-modal p { line-height: 1.6; }
-.image-import-modal .muted, .image-import-modal .import-metadata > p { color: var(--muted); font-size: 13px; }
-.image-import-modal .import-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
-.image-import-modal .import-options label { display: flex; gap: 9px; align-items: center; }
-.image-import-modal .import-options input { width: 18px; height: 18px; flex: none; accent-color: #f4f2bf; }
-.image-import-modal .import-options label:has(input:disabled) { opacity: .45; }
-.image-import-modal .import-prompt { max-height: 120px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px; background: var(--control); }
-.image-import-modal details { margin-bottom: 14px; }
-.image-import-modal .primary { width: 100%; justify-content: center; }
+.theme-official .image-import-modal { width: min(600px, calc(100vw - 24px)); max-height: min(92vh, 900px); overflow: auto; }
+.theme-official .image-import-modal .image-import-heading { position: relative; display: block; padding-right: 42px; text-align: center; }
+.theme-official .image-import-modal .image-import-heading h2 { margin: 0; font-size: 19px; }
+.theme-official .image-import-modal .image-import-heading small { display: block; margin-top: 4px; max-width: 100%; overflow-wrap: anywhere; color: var(--muted); font-size: 11px; letter-spacing: 0; }
+.theme-official .image-import-modal .image-import-heading button { position: absolute; top: 0; right: 0; padding: 7px; }
+.theme-official .image-import-modal .modal-content { overflow: visible; }
+.theme-official .image-import-modal .import-preview { display: grid; justify-items: center; gap: 6px; margin: 0 auto 18px; color: var(--muted); font-size: 12px; }
+.theme-official .image-import-modal .import-preview img { display: block; max-width: min(100%, 390px); max-height: 270px; object-fit: contain; border-radius: 5px; background: #0c0d1b; }
+.theme-official .image-import-modal .import-use-picker { width: min(100%, 430px); margin: 0 auto; }
+.theme-official .image-import-modal .import-actions { display: grid; gap: 8px; }
+.theme-official .image-import-modal .import-primary-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.theme-official .image-import-modal .import-primary-actions > :nth-child(3) { grid-column: 1 / -1; justify-self: center; width: calc(50% - 4px); }
+.theme-official .image-import-modal .import-actions button { display: flex; position: relative; flex-wrap: wrap; align-content: center; justify-content: center; min-height: 44px; padding: 9px 8px; gap: 7px; font-size: 14px; }
+.theme-official .image-import-modal .import-actions button small { flex-basis: 100%; color: var(--muted); font-size: 11px; font-weight: 400; line-height: 1.3; }
+.theme-official .image-import-modal .import-actions button:disabled { opacity: .58; cursor: not-allowed; }
+.theme-official .image-import-modal .import-actions button.is-unavailable { min-height: 58px; }
+.theme-official .image-import-modal .import-vibe-note { margin: 10px 0 0; color: var(--muted); text-align: center; font-size: 12px; }
+.theme-official .image-import-modal .import-more-uses { margin-top: 14px; }
+.theme-official .image-import-modal .import-more-uses > summary { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; cursor: pointer; color: var(--muted); font-size: 13px; list-style: none; }
+.theme-official .image-import-modal .import-more-uses > summary::-webkit-details-marker { display: none; }
+.theme-official .image-import-modal .import-more-uses[open] > summary svg { transform: rotate(180deg); }
+.theme-official .image-import-modal .import-secondary-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 8px; }
+.theme-official .image-import-modal .import-secondary-actions button { min-height: 40px; font-size: 12px; }
+.theme-official .image-import-modal .import-metadata { border-top: 1px solid var(--line); margin-top: 20px; padding-top: 16px; }
+.theme-official .image-import-modal h3 { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 17px; }
+.theme-official .image-import-modal p { line-height: 1.6; }
+.theme-official .image-import-modal .muted, .theme-official .image-import-modal .import-metadata > p { color: var(--muted); font-size: 13px; }
+.theme-official .image-import-modal .import-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.theme-official .image-import-modal .import-options label { display: flex; gap: 9px; align-items: center; }
+.theme-official .image-import-modal .import-options input { width: 18px; height: 18px; flex: none; accent-color: #f4f2bf; }
+.theme-official .image-import-modal .import-options label:has(input:disabled) { opacity: .45; }
+.theme-official .image-import-modal .import-prompt { max-height: 120px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px; background: var(--control); }
+.theme-official .image-import-modal .import-metadata details { margin-bottom: 14px; }
+.theme-official .image-import-modal .import-metadata .primary { width: 100%; justify-content: center; }
+.theme-official .image-import-modal .import-no-metadata { margin: 16px 0 0; color: var(--muted); text-align: center; font-size: 12px; }
 .image-drop-overlay { position: fixed; z-index: 200; inset: 14px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; background: #13152ce8; border: 2px dashed #f6f5c1; border-radius: 8px; pointer-events: none; color: #f6f5c1; font-size: 24px; }
 .image-drop-overlay span { max-width: 90%; text-align: center; font-size: 14px; color: #b9bad1; }
 .nai-shell .nai-import-button { width: 100%; justify-content: center; gap: 8px; margin: 6px 0 12px; padding: 10px; }
 @media (max-width: 550px) {
-  .image-import-modal .import-source { grid-template-columns: 1fr; gap: 14px; }
-  .image-import-modal .import-source img { max-height: 140px; }
+  .theme-official .image-import-modal .import-preview img { max-height: 180px; }
+  .theme-official .image-import-modal .import-secondary-actions { grid-template-columns: 1fr; }
+  .theme-official .image-import-modal .import-secondary-actions button { min-height: 40px; }
   .theme-official .image-import-modal .modal-content { padding: 15px; }
 }

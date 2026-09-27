@@ -219,7 +219,7 @@ def build_request(job: dict) -> tuple[str, dict, bool]:
     """
     operation = job["operation"]
     params = copy.deepcopy(job.get("parameters", {}))
-    for local_field in ("vibe_encodings", "vibe_pending_indices", "vibe_source_images", "source_width", "source_height"):
+    for local_field in ("vibe_encodings", "vibe_pending_indices", "vibe_source_images", "vibe_source_files", "source_width", "source_height"):
         params.pop(local_field, None)
     model = str(job.get("model") or "nai-diffusion-4-5-full")
     prompt = str(job.get("prompt", ""))
@@ -276,8 +276,20 @@ def build_request(job: dict) -> tuple[str, dict, bool]:
         if (type(strength) not in (int, float) or not math.isfinite(strength)
                 or not 0.01 <= strength <= 1):
             raise AdapterError("invalid_strength", "局部重绘强度应在 0.01 到 1 之间")
+        if inpaint is not None and "color_correct" in inpaint and type(inpaint["color_correct"]) is not bool:
+            raise AdapterError("invalid_strength", "局部重绘颜色校正选项无效")
+        # Keep strength=1 as native inpaint (the established default), while
+        # preserving explicitly supplied protocol options. When strength is
+        # non-default, preserve false as well as any additional img2img fields.
+        inpaint_options = {key: value for key, value in (inpaint or {}).items() if key != "strength"}
+        if strength == 1 and inpaint_options.get("color_correct") is True:
+            inpaint_options.pop("color_correct")
+        if strength != 1 and "color_correct" not in inpaint_options:
+            inpaint_options["color_correct"] = True
         if strength != 1:
-            params["img2img"] = {"strength": strength, "color_correct": True}
+            params["img2img"] = {"strength": strength, **inpaint_options}
+        elif inpaint_options:
+            params["img2img"] = inpaint_options
         # Inpaint results contain a generated patch. The source is blended back below.
         params["add_original_image"] = False
         model = request_model_for_operation(model, operation)

@@ -1,0 +1,23 @@
+.nai-shell .nai-character-positions { display: flex; flex: 1; flex-direction: column; min-height: 0; width: 100%; padding: 12px; gap: 12px; }
+.nai-shell .nai-position-characters { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; max-height: 112px; overflow: auto; }
+.nai-shell .nai-position-characters button { min-width: 46px; min-height: 40px; background: none; border: 1px solid var(--nai-line); }
+.nai-shell .nai-position-characters button[aria-pressed="true"] { background: #fff; color: #131429; }
+.nai-shell .nai-position-area { flex: 1; min-height: 0; min-width: 0; display: flex; justify-content: center; align-items: center; }
+.nai-shell .nai-position-canvas { position: relative; flex: none; }
+.nai-shell .nai-position-free { width: 100%; height: 100%; background: #0e0f20; touch-action: none; cursor: crosshair; }
+.nai-shell .nai-position-free:focus-visible { outline: 2px solid var(--nai-accent); outline-offset: 2px; }
+.nai-shell .nai-position-cells { display: grid; grid-template: repeat(5, minmax(0, 1fr)) / repeat(5, minmax(0, 1fr)); gap: 4px; width: 100%; height: 100%; }
+.nai-shell .nai-position-cells button { min-width: 0; min-height: 0; padding: 0; border-radius: 3px; border: 1px solid var(--nai-line); background: #0e0f20; }
+.nai-shell .nai-position-cells button[aria-pressed="true"] { background: #595967; border-color: #c0c0c7; }
+.nai-shell .nai-position-marker { position: absolute; display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--nai-line); border-radius: 50%; background: #141528; color: #ddd; transform: translate(-50%, -50%); pointer-events: none; }
+.nai-shell .nai-position-marker.selected { z-index: 1; background: #fff; color: #141528; }
+.nai-shell .nai-position-guides { position: absolute; inset: 0; pointer-events: none; }
+.nai-shell .nai-position-guides i { position: absolute; top: 0; bottom: 0; width: 1px; background: #ccccdf80; }
+.nai-shell .nai-position-guides b { position: absolute; left: 0; right: 0; height: 1px; background: #ccccdf80; }
+.nai-shell .nai-character-positions footer { display: flex; align-items: center; gap: 8px; justify-content: space-between; min-height: 44px; }
+.nai-shell .nai-position-guide-menu { position: relative; }
+.nai-shell .nai-position-guide-menu > div { position: absolute; bottom: calc(100% + 8px); left: 0; display: flex; padding: 4px; background: var(--nai-panel); border: 1px solid var(--nai-line); border-radius: 4px; white-space: nowrap; }
+.nai-shell .nai-position-guide-menu > div button { padding: 6px 10px; background: none; }
+.nai-shell .nai-position-guide-menu > div button[aria-pressed="true"] { background: var(--nai-control); }
+.nai-shell button.nai-finish-positions { background: var(--nai-accent); color: #141528; min-height: 44px; }
+@media (max-width: 700px) { .nai-shell .nai-character-positions { padding: 10px; } }

@@ -77,6 +77,13 @@ function retryDelay(failure: ExecutionFailure, retryCount: number) {
   // Repeated rejections back off; a longer explicit cooldown always takes precedence.
   return Math.max(delay, Math.min(300, delay * 2 ** Math.min(9, retryCount - 1)));
 }
+function executionPayload(task: Task): Task {
+  // Preserve browser-only Vibe metadata on local jobs, but never send it to Gate.
+  const payload: Task = {...task, parameters:{...task.parameters}};
+  delete payload.parameters.vibe_source_images;
+  delete payload.parameters.vibe_source_files;
+  return payload;
+}
 export const MAX_PENDING = 50;
 export class GateApi extends Api {
   private jobs: PreviewJob[] = [];
@@ -114,7 +121,7 @@ export class GateApi extends Api {
         if(this.closed)throw new Error('连接已关闭');
         if(this.queuePaused)continue;
         this.encodingWaitReason=undefined;
-        const response=await execution.wait(()=>this.raw('/execute',task,execution.signal),FETCH_TIMEOUT_MESSAGE);
+        const response=await execution.wait(()=>this.raw('/execute',executionPayload(task),execution.signal),FETCH_TIMEOUT_MESSAGE);
         if(!response.ok) {
           const error=await execution.wait(()=>response.json().catch(()=>({detail:`编码请求失败 (${response.status})`})),STREAM_TIMEOUT_MESSAGE);
           const detail=typeof error.detail==='object' && error.detail!==null?error.detail:error;
@@ -282,10 +289,8 @@ export class GateApi extends Api {
     let receivedFinal = false, receivedOutput = false;
     const execution=linkedExecution(this.controller.signal);
     try {
-      const task: Task = {request_id:job.request_id, operation:job.operation, model:job.model, prompt:job.prompt,
-        negative_prompt:job.negative_prompt, parameters:{...job.parameters}, label:job.label};
-      delete task.parameters.vibe_source_images;
-      delete task.parameters.vibe_source_files;
+      const task = executionPayload({request_id:job.request_id, operation:job.operation, model:job.model, prompt:job.prompt,
+        negative_prompt:job.negative_prompt, parameters:job.parameters, label:job.label});
       const response = await execution.wait(()=>this.raw('/execute',task,execution.signal),FETCH_TIMEOUT_MESSAGE);
       job.last_data_at=Date.now()/1000;
       if (!response.ok) {

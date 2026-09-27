@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent } from "react";
-import { Check, Download, Eraser, Eye, EyeOff, Hand, Paintbrush, PaintBucket, Pipette, Plus, Redo2, Square, Trash2, Undo2, X } from "lucide-react";
+import { Check, Download, Eraser, Eye, EyeOff, Hand, Layers2, Paintbrush, PaintBucket, Pencil, Pipette, Plus, Redo2, Square, Trash2, Undo2, X } from "lucide-react";
 import { download as downloadFile, fromBase64, readCanvasProject } from "./storage";
 import { MAX_CANVAS_LAYERS, MAX_CANVAS_PIXELS, MAX_CANVAS_SIDE, validateCanvasProject } from "./canvasProject";
 import type { CanvasProject } from "./canvasProject";
@@ -18,7 +18,8 @@ type Layer = { id: number; name: string; visible: boolean; canvas: HTMLCanvasEle
 type PixelAction = { type: "pixels"; id: number; before: ImageData; after: ImageData; bytes: number };
 type LayerAction = { type: "layers"; before: Layer[]; after: Layer[]; bytes: number };
 type Action = PixelAction | LayerAction;
-type Stroke = { pointerId: number; layerId: number; before: ImageData; last: { x: number; y: number } | null; erase: boolean; color: string; size: number };
+type BrushShape = "round" | "soft" | "square";
+type Stroke = { pointerId: number; layerId: number; before: ImageData; last: { x: number; y: number } | null; erase: boolean; color: string; size: number; shape: BrushShape };
 type Pan = { pointerId: number; startX: number; startY: number; x: number; y: number };
 type Tool = "brush" | "eraser" | "fill" | "picker" | "select" | "pan";
 type SelectionDrag = { pointerId: number; startX: number; startY: number };
@@ -89,6 +90,25 @@ function layerBlob(canvas: HTMLCanvasElement) {
   });
 }
 
+function LayerThumbnail({ source, revision }: { source: HTMLCanvasElement | HTMLImageElement | null; revision: number }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const target = canvasRef.current;
+    const context = target?.getContext("2d");
+    if (!target || !context) return;
+    context.clearRect(0, 0, target.width, target.height);
+    if (!source) return;
+    const sourceWidth = source instanceof HTMLCanvasElement ? source.width : source.naturalWidth;
+    const sourceHeight = source instanceof HTMLCanvasElement ? source.height : source.naturalHeight;
+    if (!sourceWidth || !sourceHeight) return;
+    const scale = Math.min(target.width / sourceWidth, target.height / sourceHeight);
+    const drawWidth = sourceWidth * scale;
+    const drawHeight = sourceHeight * scale;
+    context.drawImage(source, (target.width - drawWidth) / 2, (target.height - drawHeight) / 2, drawWidth, drawHeight);
+  }, [source, revision]);
+  return <canvas ref={canvasRef} className="canvas-editor-layer-thumbnail" width={64} height={64} aria-hidden="true" />;
+}
+
 export default function CanvasEditor({ image, width, height, scope, onSave, onCancel }: CanvasEditorProps) {
   const previewRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -108,6 +128,7 @@ export default function CanvasEditor({ image, width, height, scope, onSave, onCa
   const [layers, setLayers] = useState<Layer[]>([]);
   const [activeId, setActiveId] = useState(0);
   const [tool, setTool] = useState<Tool>("brush");
+  const [brushShape, setBrushShape] = useState<BrushShape>("round");
   const [color, setColor] = useState("#17162b");
   const [size, setSize] = useState(24);
   const [tolerance, setTolerance] = useState(24);
@@ -118,8 +139,11 @@ export default function CanvasEditor({ image, width, height, scope, onSave, onCa
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const [layersOpen, setLayersOpen] = useState(() => typeof window === "undefined" || window.innerWidth > 760);
+  const [renamingLayerId, setRenamingLayerId] = useState<number | null>(null);
+  const [layerNameDraft, setLayerNameDraft] = useState("");
   const [error, setError] = useState("");
-  const [, setHistoryVersion] = useState(0);
+  const [historyVersion, setHistoryVersion] = useState(0);
 
   const validSize = Number.isInteger(width) && Number.isInteger(height) && width > 0 && height > 0 && width <= MAX_SIDE && height <= MAX_SIDE && width * height <= MAX_PIXELS;
   const scale = fit * zoom;
@@ -218,6 +242,7 @@ export default function CanvasEditor({ image, width, height, scope, onSave, onCa
     baseBlobRef.current = null;
     layersRef.current = [];
     setLayers([]);
+    setRenamingLayerId(null);
     undoRef.current = [];
     redoRef.current = [];
     strokeRef.current = null;
@@ -416,19 +441,44 @@ export default function CanvasEditor({ image, width, height, scope, onSave, onCa
     if (!context) return;
     const current = point(event);
     context.globalCompositeOperation = stroke.erase ? "destination-out" : "source-over";
-    context.strokeStyle = stroke.color;
-    context.fillStyle = stroke.color;
-    context.lineWidth = stroke.size;
-    context.lineCap = "round";
-    context.lineJoin = "round";
-    context.beginPath();
-    if (stroke.last) {
-      context.moveTo(stroke.last.x, stroke.last.y);
-      context.lineTo(current.x, current.y);
-      context.stroke();
+    if (stroke.shape === "soft") {
+      const dab = (x: number, y: number) => {
+        const radius = stroke.size / 2;
+        const gradient = context.createRadialGradient(x, y, 0, x, y, radius);
+        gradient.addColorStop(0, stroke.color);
+        gradient.addColorStop(0.45, stroke.color);
+        gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+        context.fillStyle = gradient;
+        context.beginPath();
+        context.arc(x, y, radius, 0, Math.PI * 2);
+        context.fill();
+      };
+      if (!stroke.last) dab(current.x, current.y);
+      else {
+        const distance = Math.hypot(current.x - stroke.last.x, current.y - stroke.last.y);
+        const steps = Math.max(1, Math.ceil(distance / Math.max(1, stroke.size * 0.12)));
+        for (let index = 1; index <= steps; index++) {
+          const fraction = index / steps;
+          dab(stroke.last.x + (current.x - stroke.last.x) * fraction, stroke.last.y + (current.y - stroke.last.y) * fraction);
+        }
+      }
     } else {
-      context.arc(current.x, current.y, stroke.size / 2, 0, Math.PI * 2);
-      context.fill();
+      context.strokeStyle = stroke.color;
+      context.fillStyle = stroke.color;
+      context.lineWidth = stroke.size;
+      context.lineCap = stroke.shape === "square" ? "square" : "round";
+      context.lineJoin = stroke.shape === "square" ? "miter" : "round";
+      context.beginPath();
+      if (stroke.last) {
+        context.moveTo(stroke.last.x, stroke.last.y);
+        context.lineTo(current.x, current.y);
+        context.stroke();
+      } else if (stroke.shape === "square") {
+        context.fillRect(current.x - stroke.size / 2, current.y - stroke.size / 2, stroke.size, stroke.size);
+      } else {
+        context.arc(current.x, current.y, stroke.size / 2, 0, Math.PI * 2);
+        context.fill();
+      }
     }
     context.globalCompositeOperation = "source-over";
     stroke.last = current;
@@ -523,7 +573,7 @@ export default function CanvasEditor({ image, width, height, scope, onSave, onCa
     if (!before) return;
     event.preventDefault();
     if (!capturePointer(event)) return;
-    strokeRef.current = { pointerId: event.pointerId, layerId: layer.id, before, last: null, erase: tool === "eraser", color, size };
+    strokeRef.current = { pointerId: event.pointerId, layerId: layer.id, before, last: null, erase: tool === "eraser", color, size, shape: brushShape };
     draw(event);
   }
 
@@ -565,6 +615,7 @@ export default function CanvasEditor({ image, width, height, scope, onSave, onCa
         const after = context.getImageData(0, 0, width, height);
         if (!samePixels(stroke.before.data, after.data))
           remember({ type: "pixels", id: stroke.layerId, before: stroke.before, after, bytes: stroke.before.data.byteLength + after.data.byteLength });
+        setError("");
       }
       strokeRef.current = null;
       redraw();
@@ -601,6 +652,51 @@ export default function CanvasEditor({ image, width, height, scope, onSave, onCa
       setError("");
       redraw();
     }
+  }
+
+  function clearActiveLayer() {
+    if (!ready || savingRef.current) return;
+    if (strokeRef.current || panRef.current || selectionDragRef.current || selectionMoveRef.current) {
+      setError("请先完成当前画布操作，再清空图层。");
+      return;
+    }
+    const layer = layersRef.current.find(item => item.id === activeId);
+    const context = layer?.canvas.getContext("2d", { willReadFrequently: true });
+    if (!layer || !context) return;
+    try {
+      const before = context.getImageData(0, 0, width, height);
+      context.clearRect(0, 0, width, height);
+      const after = context.getImageData(0, 0, width, height);
+      if (samePixels(before.data, after.data)) {
+        setError("当前图层已经为空。");
+        return;
+      }
+      remember({ type: "pixels", id: layer.id, before, after, bytes: before.data.byteLength + after.data.byteLength });
+      setError("已清空当前图层，可撤销。");
+      redraw();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "无法清空当前图层。");
+    }
+  }
+
+  function beginRenameLayer(layer: Layer) {
+    if (savingRef.current) return;
+    setActiveId(layer.id);
+    setRenamingLayerId(layer.id);
+    setLayerNameDraft(layer.name);
+  }
+
+  function commitLayerName(id: number, value: string) {
+    setRenamingLayerId(null);
+    const name = value.trim();
+    const existing = layersRef.current.find(layer => layer.id === id);
+    if (!existing || !name) {
+      if (existing && !name) setError("图层名称不能为空。");
+      return;
+    }
+    if (existing.name === name) return;
+    changeLayers(layersRef.current.map(layer => layer.id === id ? { ...layer, name } : { ...layer }));
+    setError("");
   }
 
   function addLayer() {
@@ -723,69 +819,111 @@ export default function CanvasEditor({ image, width, height, scope, onSave, onCa
     else if (event.key.toLowerCase() === "h") setTool("pan");
   }
 
+  const statusText = error || (saving ? "正在保存可编辑工程…" : selection ? `选区 ${selection.width} × ${selection.height} px；按 Esc 清除选区。` : "");
+
   return <section className="canvas-editor" role="dialog" aria-modal="true" aria-label="2D 画布编辑器"
     onKeyDown={keyDown} onKeyUp={event => { if (event.code === "Space") spaceRef.current = false; }}
     onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) spaceRef.current = false; }}>
-    <header className="canvas-editor-header">
-      <div><small>2D CANVAS</small><h2>画布编辑</h2><span>{width} × {height} px</span></div>
-      <button type="button" onClick={onCancel} disabled={saving} aria-label="取消并关闭"><X size={18} /></button>
-    </header>
-    <div className="canvas-editor-body">
-      <div className="canvas-editor-main">
-        <div className="canvas-editor-toolbar" aria-label="画布工具">
-          <div className="canvas-editor-tool-group">
-            <button type="button" disabled={saving} aria-pressed={tool === "brush"} title="画笔（B）" onClick={() => setTool("brush")}><Paintbrush size={15} />画笔</button>
-            <button type="button" disabled={saving} aria-pressed={tool === "eraser"} title="橡皮（E）" onClick={() => setTool("eraser")}><Eraser size={15} />橡皮</button>
-            <button type="button" disabled={saving} aria-pressed={tool === "fill"} title="区域填充（G）" onClick={() => setTool("fill")}><PaintBucket size={15} />填充</button>
-            <button type="button" disabled={saving} aria-pressed={tool === "picker"} title="从可见合成图取色（I）" onClick={() => setTool("picker")}><Pipette size={15} />取色</button>
-            <button type="button" disabled={saving} aria-pressed={tool === "select"} title="矩形选区（M）" onClick={() => setTool("select")}><Square size={15} />选区</button>
-            <button type="button" disabled={saving} aria-pressed={tool === "pan"} title="抓手（H）" onClick={() => setTool("pan")}><Hand size={15} />抓手</button>
-          </div>
-          <label className="canvas-editor-color">颜色 <input type="color" disabled={saving} aria-label="画笔与填充颜色" value={color} onChange={event => setColor(event.target.value)} /></label>
-          <label className="canvas-editor-range">笔刷 {size}px <input type="range" disabled={saving} aria-label="笔刷大小" min="1" max="200" value={size} onChange={event => setSize(Number(event.target.value))} /></label>
-          <label className="canvas-editor-range">容差 {tolerance} <input type="range" disabled={saving} aria-label="填充颜色容差" min="0" max="128" value={tolerance} onChange={event => setTolerance(Number(event.target.value))} /></label>
-          <button type="button" aria-label="撤销" title="撤销 Ctrl+Z" disabled={!ready || saving || !undoRef.current.length} onClick={() => history(true)}><Undo2 size={17} /></button>
-          <button type="button" aria-label="重做" title="重做 Ctrl+Y" disabled={!ready || saving || !redoRef.current.length} onClick={() => history(false)}><Redo2 size={17} /></button>
-        </div>
-        <div className="canvas-editor-viewport" ref={viewportRef}>
-          <canvas ref={previewRef} tabIndex={0} role="img" aria-label="编辑画布；填充按可见合成图识别，选区在当前图层移动，按空格拖动画布"
-            width={validSize ? width : 1} height={validSize ? height : 1}
-            style={{ width: width * scale, height: height * scale, transform: `translate(${pan.x}px, ${pan.y}px)`, cursor: tool === "pan" ? "grab" : tool === "select" && selection ? "move" : tool === "picker" ? "copy" : tool === "fill" ? "cell" : "crosshair" }}
-            onPointerDown={pointerDown} onPointerMove={pointerMove}
-            onPointerUp={event => pointerEnd(event, false)} onPointerCancel={event => pointerEnd(event, true)}
-            onLostPointerCapture={event => pointerEnd(event, true)} />
-          {!ready && <div className="canvas-editor-placeholder">{error || "正在载入图片…"}</div>}
-        </div>
-        <div className="canvas-editor-zoom">
-          <button type="button" aria-label="缩小" onClick={() => setZoom(value => Math.max(0.25, value / 1.25))}>−</button>
-          <button type="button" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>适应 · {Math.round(scale * 100)}%</button>
-          <button type="button" aria-label="放大" onClick={() => setZoom(value => Math.min(8, value * 1.25))}>＋</button>
-          <span>快捷键：B 画笔 · E 橡皮 · G 填充 · I 取色 · M 矩形 · H 抓手 · 空格拖动画布</span>
-        </div>
-      </div>
-      <aside className="canvas-editor-layers" aria-label="图层">
-        <div className="canvas-editor-layers-heading"><h3>图层</h3><button type="button" onClick={addLayer} disabled={!ready || saving || layers.length >= MAX_LAYERS} title={`最多 ${MAX_LAYERS} 个编辑图层`}><Plus size={16} />添加</button></div>
-        <p>上方图层覆盖下方图层。填充按可见合成图识别，结果写入当前可见图层；底图锁定。</p>
-        <ul>
-          {[...layers].reverse().map((layer, reverseIndex) => {
-            const index = layers.length - 1 - reverseIndex;
-            return <li key={layer.id} className={activeId === layer.id ? "selected" : ""}>
-              <button type="button" disabled={saving} className="canvas-editor-layer-name" aria-pressed={activeId === layer.id} onClick={() => setActiveId(layer.id)}>{layer.name}</button>
-              <button type="button" disabled={saving} aria-label={`${layer.visible ? "隐藏" : "显示"}${layer.name}`} onClick={() => toggleLayer(layer.id)}>{layer.visible ? <Eye size={16} /> : <EyeOff size={16} />}</button>
-              <button type="button" aria-label={`上移${layer.name}`} disabled={saving || index === layers.length - 1} onClick={() => moveLayer(layer.id, 1)}>↑</button>
-              <button type="button" aria-label={`下移${layer.name}`} disabled={saving || index === 0} onClick={() => moveLayer(layer.id, -1)}>↓</button>
-              <button type="button" aria-label={`删除${layer.name}`} disabled={saving || layers.length <= 1} onClick={() => deleteLayer(layer.id)}><Trash2 size={15} /></button>
-            </li>;
-          })}
-          <li className="canvas-editor-base"><span>底图（只读）</span><span>已锁定</span></li>
-        </ul>
-      </aside>
+    <div className="canvas-editor-viewport" ref={viewportRef}>
+      <canvas ref={previewRef} tabIndex={0} role="img" aria-label="编辑画布；填充按可见合成图识别，选区在当前图层移动，按空格拖动画布"
+        width={validSize ? width : 1} height={validSize ? height : 1}
+        style={{ width: width * scale, height: height * scale, transform: `translate(${pan.x}px, ${pan.y}px)`, cursor: tool === "pan" ? "grab" : tool === "select" && selection ? "move" : tool === "picker" ? "copy" : tool === "fill" ? "cell" : "crosshair" }}
+        onPointerDown={pointerDown} onPointerMove={pointerMove}
+        onPointerUp={event => pointerEnd(event, false)} onPointerCancel={event => pointerEnd(event, true)}
+        onLostPointerCapture={event => pointerEnd(event, true)} />
+      {!ready && <div className="canvas-editor-placeholder">{error || "正在载入图片…"}</div>}
     </div>
-    <footer className="canvas-editor-footer">
-      <span role="status">{error || (saving ? "正在保存可编辑工程…" : selection ? `选区 ${selection.width} × ${selection.height} px；拖动选区移动，Esc 清除选区。` : "底图已锁定。已提交的修改会保存在本机工程中。")}</span>
-      <button type="button" onClick={onCancel} disabled={saving}>取消</button>
-      <button type="button" disabled={!ready || saving} onClick={downloadPng}><Download size={16} />下载 PNG</button>
-      <button type="button" className="canvas-editor-save" disabled={!ready || saving} onClick={() => void save()}><Check size={16} />用作图生图源图</button>
-    </footer>
+
+    <div className="canvas-editor-topbar">
+      <div className="canvas-editor-settings" aria-label="工具设置">
+        <div className="canvas-editor-draw-label"><Paintbrush size={17} /><span>绘制</span></div>
+        <div className="canvas-editor-color-control">
+          <input type="color" disabled={saving} aria-label="画笔与填充颜色" value={color} onChange={event => setColor(event.target.value)} />
+          <button type="button" disabled={saving} aria-label="颜色面板吸管" title="从可见合成图取色（I）" aria-pressed={tool === "picker"} onClick={() => setTool("picker")}><Pipette size={17} /></button>
+        </div>
+        {tool === "fill" ? <label className="canvas-editor-range">
+          <span>容差 {tolerance}</span><input type="range" disabled={saving} aria-label="填充颜色容差" min="0" max="128" value={tolerance} onChange={event => setTolerance(Number(event.target.value))} />
+        </label> : <label className="canvas-editor-range">
+          <span>笔刷 {size}px</span><input type="range" disabled={saving} aria-label="笔刷大小" min="1" max="200" value={size} onChange={event => setSize(Number(event.target.value))} />
+        </label>}
+        {(tool === "brush" || tool === "eraser") && <div className="canvas-editor-brush-shapes" role="group" aria-label="笔刷形状">
+          <button type="button" disabled={saving} aria-label="硬边圆刷" title="硬边圆刷" aria-pressed={brushShape === "round"} onClick={() => setBrushShape("round")}><span className="canvas-editor-brush-sample canvas-editor-brush-round" /></button>
+          <button type="button" disabled={saving} aria-label="柔边圆刷" title="柔边圆刷" aria-pressed={brushShape === "soft"} onClick={() => setBrushShape("soft")}><span className="canvas-editor-brush-sample canvas-editor-brush-soft" /></button>
+          <button type="button" disabled={saving} aria-label="方形画笔" title="方形画笔" aria-pressed={brushShape === "square"} onClick={() => setBrushShape("square")}><span className="canvas-editor-brush-sample canvas-editor-brush-square" /></button>
+        </div>}
+      </div>
+
+      <div className="canvas-editor-actions" aria-label="保存与导出">
+        <button type="button" disabled={!ready || saving} aria-label="下载 PNG" title="下载 PNG" onClick={downloadPng}><Download size={18} /></button>
+        <button type="button" className="canvas-editor-save" aria-label="保存并关闭" title="保存并关闭" disabled={!ready || saving} onClick={() => void save()}><Check size={16} /><span className="canvas-editor-save-long">保存并关闭</span><span className="canvas-editor-save-short">保存</span></button>
+        <button type="button" onClick={onCancel} disabled={saving} aria-label="关闭画布编辑器" title="关闭"><X size={18} /></button>
+      </div>
+    </div>
+
+    <nav className="canvas-editor-toolstrip" aria-label="画布工具">
+      <div className="canvas-editor-toolstrip-tools">
+        <button type="button" disabled={!ready || saving} aria-pressed={tool === "brush"} title="画笔（B）" aria-label="画笔" onClick={() => setTool("brush")}><Paintbrush size={18} /></button>
+        <button type="button" disabled={!ready || saving} aria-pressed={tool === "eraser"} title="橡皮（E）" aria-label="橡皮" onClick={() => setTool("eraser")}><Eraser size={18} /></button>
+        <button type="button" disabled={!ready || saving} aria-pressed={tool === "fill"} title="区域填充（G）" aria-label="填充" onClick={() => setTool("fill")}><PaintBucket size={18} /></button>
+        <button type="button" disabled={!ready || saving} aria-pressed={tool === "select"} title="矩形选区（M）" aria-label="矩形选区" onClick={() => setTool("select")}><Square size={18} /></button>
+        <button type="button" disabled={!ready || saving} aria-pressed={tool === "picker"} title="从可见合成图取色（I）" aria-label="吸管工具" onClick={() => setTool("picker")}><Pipette size={18} /></button>
+        <button type="button" disabled={!ready || saving} aria-pressed={tool === "pan"} title="抓手（H）" aria-label="抓手" onClick={() => setTool("pan")}><Hand size={18} /></button>
+      </div>
+      <span className="canvas-editor-toolstrip-divider" aria-hidden="true" />
+      <div className="canvas-editor-toolstrip-actions">
+        <button type="button" disabled={!ready || saving} title="清空当前图层（可撤销）" aria-label="清空当前图层" onClick={clearActiveLayer}><Trash2 size={18} /></button>
+        <button type="button" aria-label="撤销" title="撤销 Ctrl+Z" disabled={!ready || saving || !undoRef.current.length} onClick={() => history(true)}><Undo2 size={18} /></button>
+        <button type="button" aria-label="重做" title="重做 Ctrl+Y" disabled={!ready || saving || !redoRef.current.length} onClick={() => history(false)}><Redo2 size={18} /></button>
+      </div>
+    </nav>
+
+    <div className="canvas-editor-zoom" aria-label="画布缩放">
+      <button type="button" aria-label="缩小" title="缩小" onClick={() => setZoom(value => Math.max(0.25, value / 1.25))}>−</button>
+      <button type="button" className="canvas-editor-zoom-fit" title="适应画布" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>{Math.round(scale * 100)}%</button>
+      <button type="button" aria-label="放大" title="放大" onClick={() => setZoom(value => Math.min(8, value * 1.25))}>＋</button>
+    </div>
+
+    {layersOpen && <aside id="canvas-editor-layers-panel" className="canvas-editor-layer-panel" aria-label="图层面板">
+      <div className="canvas-editor-layers-heading">
+        <span>图层</span>
+        <button type="button" onClick={addLayer} disabled={!ready || saving || layers.length >= MAX_LAYERS} title={`添加图层（最多 ${MAX_LAYERS} 层）`} aria-label="添加图层"><Plus size={17} /></button>
+        <button type="button" onClick={() => setLayersOpen(false)} aria-label="收起图层面板" title="收起图层面板"><X size={15} /></button>
+      </div>
+      <ul className="canvas-editor-layer-list">
+        {[...layers].reverse().map((layer, reverseIndex) => {
+          const index = layers.length - 1 - reverseIndex;
+          return <li key={layer.id} className={`canvas-editor-layer${activeId === layer.id ? " selected" : ""}${layer.visible ? "" : " hidden-layer"}`}>
+            <button type="button" className="canvas-editor-layer-select" aria-pressed={activeId === layer.id} aria-label={`选择${layer.name}`} disabled={saving} onClick={() => setActiveId(layer.id)}>
+              <LayerThumbnail source={layer.canvas} revision={historyVersion} />
+            </button>
+            <div className="canvas-editor-layer-details">
+              {renamingLayerId === layer.id ? <input autoFocus maxLength={80} aria-label="图层名称" value={layerNameDraft}
+                onChange={event => setLayerNameDraft(event.target.value)} onBlur={event => commitLayerName(layer.id, event.currentTarget.value)}
+                onKeyDown={event => {
+                  if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); }
+                  else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); event.currentTarget.value = layer.name; event.currentTarget.blur(); }
+                }} /> : <button type="button" className="canvas-editor-layer-name" title={layer.name} aria-pressed={activeId === layer.id} disabled={saving} onClick={() => setActiveId(layer.id)}>{layer.name}</button>}
+              <div className="canvas-editor-layer-actions">
+                <button type="button" aria-label={`重命名${layer.name}`} title="重命名" disabled={saving} onClick={() => beginRenameLayer(layer)}><Pencil size={14} /></button>
+                <button type="button" aria-label={`${layer.visible ? "隐藏" : "显示"}${layer.name}`} title={layer.visible ? "隐藏图层" : "显示图层"} disabled={saving} onClick={() => toggleLayer(layer.id)}>{layer.visible ? <Eye size={14} /> : <EyeOff size={14} />}</button>
+                <button type="button" aria-label={`上移${layer.name}`} title="上移" disabled={saving || index === layers.length - 1} onClick={() => moveLayer(layer.id, 1)}>↑</button>
+                <button type="button" aria-label={`下移${layer.name}`} title="下移" disabled={saving || index === 0} onClick={() => moveLayer(layer.id, -1)}>↓</button>
+                <button type="button" aria-label={`删除${layer.name}`} title="删除图层" disabled={saving || layers.length <= 1} onClick={() => deleteLayer(layer.id)}><Trash2 size={14} /></button>
+              </div>
+            </div>
+          </li>;
+        })}
+        <li className="canvas-editor-layer canvas-editor-base">
+          <LayerThumbnail source={baseRef.current} revision={historyVersion} />
+          <span>底图 <small>只读</small></span>
+        </li>
+      </ul>
+      <p>底图已锁定。修改只写入可编辑图层。</p>
+    </aside>}
+
+    <button type="button" className="canvas-editor-layers-toggle" aria-controls="canvas-editor-layers-panel" aria-expanded={layersOpen}
+      aria-label={`${layersOpen ? "收起" : "展开"}图层面板，${layers.length} 个编辑图层`} title="图层"
+      onClick={() => setLayersOpen(value => !value)}><Layers2 size={18} /><span>{layers.length}</span></button>
+    <div className="canvas-editor-status" role="status" aria-live="polite" hidden={!statusText}>{statusText}</div>
   </section>;
 }

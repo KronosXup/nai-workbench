@@ -6,7 +6,7 @@
   padding: 0;
   overflow: hidden;
   color: #f0f1f8;
-  background: #090b19;
+  background: #0b1024;
   backdrop-filter: none;
 }
 
@@ -19,7 +19,7 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: #0c0e1d;
+  background: #10172d;
   color: #f0f1f8;
   outline: none;
 }
@@ -43,14 +43,14 @@
   display: grid;
   grid-template-columns: 56px minmax(0, 1fr);
   grid-template-rows: auto auto;
-  width: 255px;
+  width: 320px;
   align-items: center;
   gap: 6px 10px;
   min-width: 0;
   padding: 10px 12px;
   border: 1px solid #30334c;
   border-radius: 6px;
-  background: #111426ed;
+  background: #151d36ed;
   box-shadow: none;
   pointer-events: auto;
 }
@@ -191,7 +191,7 @@
   place-items: center;
   overflow: hidden;
   padding: 74px 24px 76px;
-  background: #090b19;
+  background: #0b1024;
 }
 
 .mask-editor .mask-editor-image-wrap {
@@ -225,6 +225,7 @@
   opacity: 1;
   cursor: crosshair;
   touch-action: none;
+  image-rendering: pixelated;
 }
 
 .mask-editor .mask-editor-hint {
@@ -241,7 +242,7 @@
   font-size: 11px;
   line-height: 1.4;
   text-align: center;
-  white-space: nowrap;
+  white-space: normal;
   pointer-events: none;
 }
 
@@ -253,11 +254,15 @@
   display: flex;
   align-items: center;
   gap: 5px;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: max-content;
+  max-width: calc(100% - 20px);
   padding: 6px;
   transform: translateX(-50%);
   border: 1px solid #373b56;
   border-radius: 7px;
-  background: #15182beF;
+  background: #18213cef;
   box-shadow: none;
 }
 
@@ -310,6 +315,104 @@
   outline: 2px solid #eee9aa;
   outline-offset: 2px;
 }
+
+/* Binary mask stays separate from full-resolution transparent paint layers. */
+.mask-editor .mask-editor-stage { padding-right: 24px; }
+.mask-editor .mask-editor-stage { padding-top: 122px; }
+.mask-editor .mask-editor-image-wrap { transform-origin: center center; touch-action: none; cursor: crosshair; }
+.mask-editor .mask-editor-image-wrap > img { position: absolute; inset: 0; z-index: 0; }
+.mask-editor .mask-editor-paint-composite,
+.mask-editor .mask-editor-overlay {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  pointer-events: none;
+}
+.mask-editor .mask-editor-paint-composite { z-index: 1; }
+.mask-editor .mask-editor-overlay { z-index: 2; image-rendering: pixelated; }
+.mask-editor .mask-editor-selection {
+  position: absolute;
+  z-index: 3;
+  border: 1px dashed #f5f3c2;
+  outline: 1px dashed #17182d;
+  pointer-events: none;
+}
+.mask-editor .mask-editor-settings { grid-template-rows: auto auto auto; }
+.mask-editor .mask-editor-palette {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+.mask-editor .mask-editor-palette button {
+  width: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid #ffffff70;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px #11142680;
+}
+.mask-editor .mask-editor-palette button[aria-pressed="true"] {
+  outline: 2px solid #f4f1c1;
+  outline-offset: 2px;
+}
+.mask-editor .mask-editor-save-actions { margin-left: auto; }
+.mask-editor .mask-editor-download { width: 38px; min-width: 38px; min-height: 38px; padding: 7px; }
+.mask-editor .mask-editor-layers {
+  position: absolute;
+  z-index: 5;
+  top: 50%;
+  right: 14px;
+  bottom: auto;
+  display: flex;
+  flex-direction: column;
+  width: 180px;
+  max-height: calc(100% - 130px);
+  min-width: 0;
+  padding: 9px;
+  overflow: hidden;
+  border: 1px solid #363b58;
+  border-radius: 7px;
+  color: #e6e7f1;
+  background: #11182aeb;
+  box-shadow: 0 8px 28px #06081780;
+  transform: translateY(-50%);
+}
+.mask-editor .mask-editor-layers.is-collapsed { width: auto; height: 38px; max-height: none; padding: 3px 6px; }
+.mask-editor .mask-editor-layers-heading { display: flex; align-items: center; justify-content: space-between; gap: 7px; min-height: 30px; }
+.mask-editor .mask-editor-layers-heading .mask-editor-layers-toggle { min-height: 28px; padding: 3px 5px; font-weight: 600; }
+.mask-editor .mask-editor-layers-heading > button { min-width: 28px; min-height: 28px; padding: 3px; }
+.mask-editor .mask-editor-layers-toggle { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: #e6e7f1; }
+.mask-editor .mask-editor-layers-toggle svg { transition: transform .15s ease; }
+.mask-editor .mask-editor-layers.is-collapsed .mask-editor-layers-toggle svg { transform: rotate(180deg); }
+.mask-editor .mask-editor-layers > ul { display: grid; gap: 5px; min-height: 0; margin: 7px 0 0; padding: 0; overflow: auto; list-style: none; }
+.mask-editor .mask-editor-layers.is-collapsed > ul,
+.mask-editor .mask-editor-layers.is-collapsed > p { display: none; }
+.mask-editor .mask-editor-layers li { display: flex; align-items: center; gap: 2px; min-width: 0; padding: 3px; border: 1px solid #363b58; border-radius: 4px; background: #171d31; }
+.mask-editor .mask-editor-layers li:not(.mask-editor-mask-layer):not(.mask-editor-source-layer) { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.mask-editor .mask-editor-layers li:not(.mask-editor-mask-layer):not(.mask-editor-source-layer) > .mask-editor-layer-select { grid-column: 1 / -1; }
+.mask-editor .mask-editor-layers li.selected { border-color: #e7e2a7; }
+.mask-editor .mask-editor-layers li > button { min-width: 25px; min-height: 28px; padding: 2px; border: 0; background: transparent; color: #ccd0e0; }
+.mask-editor .mask-editor-layers li > button:hover:not(:disabled) { background: #282e48; }
+.mask-editor .mask-editor-layers li > .mask-editor-layer-select { display: flex; flex: 1; align-items: center; justify-content: flex-start; gap: 7px; min-width: 0; overflow: hidden; padding: 2px 4px; white-space: nowrap; text-overflow: ellipsis; }
+.mask-editor .mask-editor-layers li > .mask-editor-layer-select[aria-pressed="true"] { color: #f5f3c2; }
+.mask-editor .mask-editor-layers canvas { width: 32px; height: 24px; flex: none; border: 1px solid #454b69; background: conic-gradient(#33384e 25%, #1d2235 0 50%, #33384e 0 75%, #1d2235 0) 0 / 8px 8px; image-rendering: pixelated; }
+.mask-editor .mask-editor-layers .mask-editor-source-layer { display: flex; align-items: center; gap: 8px; min-height: 31px; padding: 3px 6px; color: #aeb3c8; }
+.mask-editor .mask-editor-layers .mask-editor-source-layer span:last-child { margin-left: auto; color: #858ca5; font-size: 10px; }
+.mask-editor .mask-editor-layers > p { margin: 7px 1px 0; color: #d4bd8c; font-size: 10px; line-height: 1.4; }
+.mask-editor.is-saving .mask-editor-stage,
+.mask-editor.is-saving .mask-editor-layers,
+.mask-editor.is-saving .mask-editor-toolbar,
+.mask-editor.is-saving .mask-editor-settings { pointer-events: none; }
+.mask-editor.is-saving .mask-editor-save-actions .mask-editor-save { cursor: progress; }
 
 @media (max-width: 700px) {
   .mask-editor .mask-editor-topbar {
@@ -374,7 +477,7 @@
   }
 
   .mask-editor .mask-editor-stage {
-    padding: 154px 10px 78px;
+    padding: 154px 10px 78px 10px;
   }
 
   .mask-editor .mask-editor-image-wrap > img {
@@ -441,8 +544,41 @@
     padding-top: 166px;
   }
 
+  .mask-editor .mask-editor-stage { padding-right: 10px; }
+
+  .mask-editor .mask-editor-toolbar {
+    gap: 2px;
+    padding: 4px;
+  }
+
+  .mask-editor .mask-editor-toolbar button {
+    width: 30px;
+    min-width: 30px;
+    min-height: 32px;
+  }
+
   .mask-editor .mask-editor-image-wrap > img {
     max-width: none;
     max-height: none;
   }
+}
+
+@media (max-width: 700px) {
+  .mask-editor .mask-editor-settings { grid-template-rows: auto auto auto; }
+  .mask-editor .mask-editor-layers { top: 50%; right: 8px; bottom: auto; width: min(180px, calc(100vw - 16px)); max-height: calc(100dvh - 170px); transform: translateY(-50%); }
+  .mask-editor .mask-editor-layers.is-collapsed { top: 50%; width: auto; }
+  .mask-editor .mask-editor-palette { gap: 4px; }
+  .mask-editor .mask-editor-palette button { width: 16px; min-width: 16px; height: 16px; min-height: 16px; }
+  .mask-editor .mask-editor-toolbar {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-width: none;
+    transform: none;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .mask-editor .mask-editor-toolbar > * { flex: none; }
 }

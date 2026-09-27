@@ -24,6 +24,7 @@ CLIENT_TESTS = (
     "client/scripts/test-canvas-storage.mjs",
     "client/scripts/test-canvas-project.mjs",
     "client/scripts/test-pixel-snap.mjs",
+    "client/scripts/test-mask-grid.mjs",
 )
 
 PYTHON_OFFLINE_GUARD = r'''

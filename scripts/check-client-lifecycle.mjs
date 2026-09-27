@@ -26,7 +26,7 @@ function actualModule(name) {
 }
 const {configurationIssueFor, effectiveModelForOperation, usesGenerationSettings} = actualModule('taskValidation.ts');
 const {ApiError} = actualModule('api.ts');
-const {generationParameters, defaultNoiseSchedule} = actualModule('modelSettings.ts');
+const {generationParameters, defaultNoiseSchedule, modelGenerationDefaults} = actualModule('modelSettings.ts');
 const {composePrompts} = actualModule('promptPresets.ts');
 const {newDraft, defaultParameters, joinPrompt, uuid} = actualModule('types.ts');
 const {resolveVibeReference, makeVibeFile, VibeReferenceError, encodingFor} = actualModule('vibeFiles.ts');
@@ -112,7 +112,9 @@ function harness() {
     identity: {current: owner},
     canvasScope: {current: `${owner}|key-sha256:${'a'.repeat(64)}`},
     generation: {current: 1},
+    importSequence: {current: 0},
     syncBusy: {current: false},
+    selectedIdRef: {get current() { return state.selectedId; }, set current(value) { state.selectedId = value; }},
     askConfirmation: async () => true,
     errorText: error => error instanceof Error ? error.message : String(error),
     setJobs: value => { state.jobs = typeof value === 'function' ? value(state.jobs) : value; },
@@ -126,7 +128,8 @@ function harness() {
     setEncodingWaitReason: () => {},
     setQueueNow: () => {},
     setBlankCanvas: () => {},
-    setSelectedId: id => { state.selectedId = id; },
+      setSelectedId: id => { state.selectedId = id; },
+      chooseResult: id => { scope.selectedIdRef.current = id; scope.importSequence.current++; state.selectedId = id; },
     setRows: rows => { state.rows = rows; },
     setDraft: draft => { state.draft = typeof draft === 'function' ? draft(state.draft) : draft; },
     notify: () => {},
@@ -179,11 +182,151 @@ function harness() {
 }
 
 const checks = [
+  ['Cancelling a pending regular image import preserves the current source and ignores its late decode', async () => {
+    const h=harness();
+    const original={...newDraft(),parameters:{...defaultParameters,image:'previous-source',mask:'previous-mask',width:832,height:1216}};
+    h.scope.draftRef={current:original};
+    let finish; const imported=[];
+    Object.assign(h.scope,{user:{id:'A'},pageRef:{current:'draw'},importSequence:{current:0},
+      readImage:()=>new Promise(resolve=>{finish=resolve;}),setImports:value=>{imported.push(value);},setDragging:()=>{},
+      generation:{current:1},identity:{current:'owner-a'}});
+    const work=h.fn('openImages')([{name:'replacement.png'}]);
+    h.scope.importSequence.current++;
+    h.scope.setImports([]);
+    finish({name:'replacement.png',data:'new-source',width:64,height:64});
+    await work;
+    assert.equal(h.scope.draftRef.current,original,'Cancelling selection leaves all draft attachments untouched');
+    assert.deepEqual(imported,[[]],'The late image decode must not reopen the chooser');
+
+    let draft=original;
+    const acceptanceScope={draftRef:{get current(){return draft;}},effectiveModelForOperation,usesGenerationSettings,
+      setDraft:change=>{draft=typeof change==='function'?change(draft):change;},setPage:()=>{},setMobileTab:()=>{},notify:()=>{},
+      setPendingMaskDraft:()=>{},setShowMask:()=>{},openDirector:()=>{}};
+    actualFunction('acceptImage',acceptanceScope)('image',{name:'replacement.png',data:'new-source',width:832,height:1216});
+    assert.equal(draft.parameters.image,'new-source','Choosing Image2Image applies the newly selected source');
+    assert.equal(draft.parameters.mask,undefined,'Replacing a source clears its old mask only after selection');
+    assert.equal(draft.prompt,original.prompt); assert.equal(draft.negative,original.negative);
+  }],
+  ['Generation settings reset confirms, keeps prompt and images, and rejects stale drafts', async () => {
+    const original = newDraft();
+    original.model = 'nai-diffusion-4-5-full';
+    original.prompt = 'keep positive'; original.negative = 'keep negative'; original.qualityPreset = 'light';
+    original.parameters = {...original.parameters, image:'keep-source', mask:'keep-mask', steps:47, scale:9, seed:12,
+      character_prompts:[{prompt:'keep character',negative_prompt:'keep character negative',x:.2,y:.8}], reference_image_multiple:['keep-vibe']};
+    const state={draft:original,request:null}; let accept;
+    const scope={draftRef:{get current(){return state.draft;}},generation:{current:4},identity:{current:'owner-a'},
+      effectiveModelForOperation,modelGenerationDefaults,
+      askConfirmation:request=>{state.request=request;return new Promise(resolve=>{accept=resolve;});},
+      setDraft:change=>{state.draft=typeof change==='function'?change(state.draft):change;}};
+    const reset=actualFunction('resetGenerationSettings',scope);
+    const work=reset();
+    assert.equal(state.request.title,'重置生成设置？');
+    assert.match(state.request.message,/质量预设恢复为“标准”/);
+    accept(false); await work;
+    assert.equal(state.draft,original,'Cancel must not replace or patch the draft');
+
+    const accepted=reset(); accept(true); await accepted;
+    assert.equal(state.draft.qualityPreset,'standard');
+    assert.deepEqual(state.draft.parameters,{...original.parameters,...modelGenerationDefaults('nai-diffusion-4-5-full')});
+    assert.equal(state.draft.prompt,'keep positive'); assert.equal(state.draft.negative,'keep negative');
+    assert.equal(state.draft.parameters.image,'keep-source'); assert.equal(state.draft.parameters.mask,'keep-mask');
+    assert.deepEqual(state.draft.parameters.reference_image_multiple,['keep-vibe']);
+    assert.deepEqual(state.draft.parameters.character_prompts,original.parameters.character_prompts);
+
+    const fresh={...original,model:'nai-diffusion-5-full',prompt:'newer draft'};
+    state.draft=original; const stale=reset(); state.draft=fresh; accept(true); await stale;
+    assert.equal(state.draft,fresh,'A draft replacement during confirmation must win');
+    state.draft=original; const switched=reset(); scope.generation.current++; accept(true); await switched;
+    assert.equal(state.draft,original,'A model/account generation change during confirmation must block reset');
+  }],
+  ['Mask save preserves editable source and draft fields, applies pending mask draft, and rejects stale async saves', async () => {
+    const base=newDraft(); base.prompt='base prompt'; base.negative='base negative';
+    base.parameters={...base.parameters,image:'old-source',mask:'old-mask',reference_image_multiple:['ref'],custom_field:{keep:true}};
+    const pending={...base,prompt:'pending prompt',parameters:{...base.parameters,image:'pending-source'}};
+    const state={draft:base,pendingMaskDraft:pending,saved:[],page:'mask',mobile:'result',closed:false};
+    const scope={generation:{current:8},identity:{current:'owner-a'},canvasScope:{current:'scope-a'},draftRef:{get current(){return state.draft;}},
+      pendingMaskDraft:pending,CanvasProject:undefined,local:{saveCanvasProject:async(...args)=>{state.saved.push(args);}},
+      setDraft:change=>{state.draft=typeof change==='function'?change(state.draft):change;},closeMask:()=>{state.closed=true;state.pendingMaskDraft=null;},
+      setPage:value=>{state.page=value;},setMobileTab:value=>{state.mobile=value;},notify:()=>{}};
+    await actualFunction('saveMask',scope)('new-mask');
+    assert.equal(state.draft.parameters.image,'pending-source');
+    assert.equal(state.draft.parameters.mask,'new-mask');
+    assert.equal(state.draft.prompt,'pending prompt');
+    assert.equal(state.draft.negative,'base negative');
+    assert.deepEqual(state.draft.parameters.reference_image_multiple,['ref']);
+    assert.deepEqual(state.draft.parameters.custom_field,{keep:true});
+    assert.deepEqual(state.saved,[],'A binary mask update without edited source must not save/rewrite the source image');
+    assert.equal(state.closed,true);
+
+    const unchanged={...base,parameters:{...base.parameters}};
+    state.draft=unchanged; state.pendingMaskDraft=null; scope.pendingMaskDraft=null; state.closed=false;
+    await actualFunction('saveMask',scope)('mask-only');
+    assert.equal(state.draft.parameters.image,'old-source','Mask-only edits retain the original source');
+    assert.equal(state.draft.parameters.mask,'mask-only');
+
+    state.draft=base; state.pendingMaskDraft=null; scope.pendingMaskDraft=null; state.closed=false;
+    scope.local.saveCanvasProject=async(...args)=>{state.saved.push(args);};
+    await actualFunction('saveMask',scope)('edited-mask','edited-source',{id:'editable-project'});
+    assert.equal(state.draft.parameters.image,'edited-source','A flattened edited source is paired with its new mask');
+    assert.equal(state.draft.parameters.mask,'edited-mask');
+    assert.equal(state.draft.prompt,'base prompt'); assert.equal(state.draft.negative,'base negative');
+    assert.deepEqual(state.draft.parameters.reference_image_multiple,['ref']);
+    assert.deepEqual(state.draft.parameters.custom_field,{keep:true});
+    assert.equal(state.saved.at(-1)[1],'edited-source');
+
+    state.draft=base; state.pendingMaskDraft=pending; scope.pendingMaskDraft=pending; state.closed=false;
+    let finishSave; scope.local.saveCanvasProject=async(...args)=>{state.saved.push(args);await new Promise(resolve=>{finishSave=resolve;});};
+    const staleWork=actualFunction('saveMask',scope)('raced-mask','edited-source',{id:'project'});
+    await Promise.resolve();
+    state.draft={...base,prompt:'new draft after save started'};
+    finishSave();
+    await assert.rejects(staleWork,/当前草稿已改变/);
+    assert.equal(state.draft.prompt,'new draft after save started','An async canvas save must not overwrite a newer draft');
+  }],
   ['App accepts only a same-origin Gate connection', async () => {
     assert.match(sourceText, /await verifyGateHealth\(\)/);
     assert.match(sourceText, /new GateApi\("", access\.trim\(\)\)/);
     assert.doesNotMatch(sourceText, /\bisGate\b|\bisMock\b|\bloginBase\b|new Api\(/);
     assert.doesNotMatch(sourceText, /StorageSettings|\/admin\/users|["']\/settings/);
+  }],
+  ['Logout during pending work clears busy for the next login', async () => {
+    const state = {busy:true, user:{id:'A'}, draft:newDraft(), loaded:true, token:'old-key'};
+    const api = {pending:()=>true, close:()=>{state.closed=true;}};
+    const noop = () => {};
+    const scope = {
+      apiRef:{current:api}, window:{confirm:()=>true}, settleConfirmation:noop,
+      local:{saveDraft:async()=>{}, readDraft:async()=>undefined, gallery:async()=>[]},
+      generation:{current:7}, submitting:{current:true}, identity:{current:'https://fixture|A'},
+      canvasScope:{current:'scope-A'}, submitCache:{current:{fingerprint:'old'}}, importSequence:{current:2},
+      syncBusy:{current:true}, draftRef:{current:state.draft}, newDraft,
+      setBusy:value=>{state.busy=value;}, setUser:value=>{state.user=value;},
+      setDraft:value=>{state.draft=typeof value==='function'?value(state.draft):value;},
+      setLoaded:value=>{state.loaded=value;}, setToken:value=>{state.token=value;},
+      setConnecting:noop, setFailure:noop, setUserRefreshIssue:noop, setBackupWarning:noop,
+      setImports:noop, setDragging:noop, setApi:noop, setCaps:noop, setRows:noop, setJobs:noop,
+      setSaveIssue:noop, setQueuePaused:noop, setQueueEncoding:noop, setEncodingPaused:noop,
+      setEncodingRetryAt:noop, setEncodingWaitReason:noop, setBlankCanvas:noop,
+      setPendingMaskDraft:noop, setShowMask:noop, setCanvasInput:noop, setPixelInput:noop,
+      setSelectedId:noop, setQuote:noop, setQuoteError:noop, setLoginToken:noop,
+      chooseResult:noop,
+      setNotice:noop, notify:noop, fail:error=>{throw error;},
+      sessionStorage:{removeItem:noop,setItem:noop}, localStorage:{removeItem:noop},
+      location:{origin:'https://fixture'}, fallbackModels:[], verifyGateHealth:async()=>{},
+      canvasProjectScope:()=> 'scope-B', restoreDraftForSession:actualFunction('restoreDraftForSession'),
+      migrateDirectorDraft,
+      GateApi:class { async request(route) {
+        if(route==='/me') return {id:'B',name:'Owner B',quota:{remaining:5}};
+        if(route==='/capabilities') return {models:[],operations:[]};
+        throw new Error(`Unmodelled connection request: ${route}`);
+      } },
+    };
+    actualFunction('disconnect',scope)();
+    assert.equal(state.closed,true);
+    assert.equal(state.busy,false,'confirmed logout must clear the abandoned submission spinner');
+    assert.equal(scope.submitting.current,false,'a new session must not inherit the old submit guard');
+    await actualFunction('connect',scope)('new-key');
+    assert.equal(state.user.id,'B');
+    assert.equal(state.busy,false,'re-login remains able to submit after pending work was abandoned');
   }],
   ['Background account refresh keeps cached data, reports locally and backs off after failures', async () => {
     let current = {id:'A', name:'Owner A', quota:{remaining:42}}, refreshIssue = false;
@@ -264,7 +407,7 @@ const checks = [
       for (const leave of ['account','page','new-file']) {
         const h=harness(); let finish, calls=0;
         Object.assign(h.scope,{importSequence:{current:0},readImage:()=>new Promise(resolve=>{finish=resolve;}),acceptImage:()=>{calls++;},setImports:()=>{calls++;},setDragging:()=>{}});
-        const row={blob:new Blob(['fixture']),result:{filename:'fixture.png',media_type:'image/png'}};
+        const row={id:'chosen-result',blob:new Blob(['fixture']),result:{filename:'fixture.png',media_type:'image/png'}};
         const work=action==='useAs'?h.fn(action)('augment',row):action==='uploadImage'?h.fn(action)('image',{}):h.fn(action)([{}]);
         if(leave==='account')h.switchToB();
         if(leave==='page')h.scope.pageRef.current='director';
@@ -274,6 +417,61 @@ const checks = [
         assert.equal(calls,0,`${action}: ${leave}`);
         assert.deepEqual(h.state.errors,[]);
       }
+    }
+  }],
+  ['Opening a saved image cancels after identity, page, selection or draft changes', async () => {
+    for (const action of ['openResultCanvas','openResultPixelSnap']) {
+      for (const change of ['account','page','selection','draft']) {
+        const h=harness(); let finish,opened=0;
+        h.state.selectedId='chosen-result';
+        h.scope.readImage=()=>new Promise(resolve=>{finish=resolve;});
+        h.scope.setCanvasInput=()=>{opened++;};
+        h.scope.setPixelInput=()=>{opened++;};
+        const row={id:'chosen-result',blob:new Blob(['fixture']),result:{filename:'fixture.png',media_type:'image/png'}};
+        const work=h.fn(action)(row);
+        if(change==='account')h.switchToB();
+        if(change==='page')h.scope.pageRef.current='settings';
+        if(change==='selection')h.scope.selectedIdRef.current='another-result';
+        if(change==='draft')h.state.draft={...h.state.draft,prompt:'edited while image decoded'};
+        finish({data:'YWJj',width:64,height:64,name:'fixture.png'});
+        await work;
+        assert.equal(opened,0,`${action}: ${change}`);
+        assert.deepEqual(h.state.errors,[]);
+      }
+      const h=harness(); let opened=0;
+      h.state.selectedId='chosen-result';
+      h.scope.readImage=async()=>({data:'YWJj',width:64,height:64,name:'fixture.png'});
+      h.scope.setCanvasInput=()=>{opened++;};
+      h.scope.setPixelInput=()=>{opened++;};
+      await h.fn(action)({id:'chosen-result',blob:new Blob(['fixture']),result:{filename:'fixture.png',media_type:'image/png'}});
+      assert.equal(opened,1,`${action}: unchanged current selection still opens`);
+    }
+  }],
+  ['Gallery reuse cannot overwrite a newer page, image selection or draft', async () => {
+    for (const change of ['account','page','selection','new-import','draft']) {
+      const h=harness(); let finish;
+      h.state.draft=newDraft();
+      h.state.selectedId='previous-selection';
+      h.scope.defaultParameters=defaultParameters;
+      h.scope.setPage=page=>{h.scope.pageRef.current=page;};
+      h.scope.setMobileTab=()=>{};
+      h.scope.setBlankCanvas=()=>{};
+      h.scope.notify=()=>{};
+      h.scope.readImage=()=>new Promise(resolve=>{finish=resolve;});
+      const row={id:'old-result',blob:new Blob(['fixture']),result:{filename:'old.png',media_type:'image/png'},
+        job:{operation:'generate',model:'nai-diffusion-4-5-full',prompt:'old prompt',negative_prompt:'',parameters:{seed:7}}};
+      const work=h.fn('reuse')(row);
+      if(change==='account')h.switchToB();
+      if(change==='page')h.scope.pageRef.current='settings';
+      if(change==='selection')h.scope.selectedIdRef.current='new-selection';
+      if(change==='new-import')h.scope.importSequence.current++;
+      if(change==='draft')h.state.draft={...h.state.draft,prompt:'new prompt'};
+      finish({data:'YWJj',width:64,height:64,name:'old.png'});
+      await work;
+      assert.notEqual(h.state.draft.prompt,'old prompt',change);
+      if(change==='draft')assert.equal(h.state.draft.prompt,'new prompt');
+      assert.notEqual(h.state.selectedId,'old-result',change);
+      assert.deepEqual(h.state.errors,[]);
     }
   }],
   ['Director completion cannot steal the drawing selection or replace a newer tool source', async () => {
@@ -671,6 +869,8 @@ if (failed) process.exitCode = 1;
   scope.draftRef.current={parameters:{vibe_encodings:{}}};
   scope.local.saveDraft=async()=>{generation.current++;};
   await submit([item()]);assert.equal(submitted,1);
+  // disconnect resets the guard when it invalidates the old generation.
+  scope.submitting.current=false;
   // A full queue must reject the entire batch before the paid Vibe encode call.
   generation.current=1;scope.draftRef.current={parameters:{vibe_encodings:{}}};
   scope.local.saveDraft=async()=>{saved++;};

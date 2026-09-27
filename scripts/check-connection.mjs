@@ -50,6 +50,7 @@ function harness({brokenDraft=false}={}) {
       source:{data:'director-image',width:80,height:60,name:'director.png'},resultId:'previous-result'}}, images=[{id:'existing-image'}];
   const scope={verifyGateHealth,GateApi:class extends api.Api {},
     generation:{current:0},syncBusy:{current:false},submitCache:{current:null},importSequence:{current:0},
+    selectedIdRef:{current:undefined},chooseResult:id=>{scope.selectedIdRef.current=id;state.setSelectedId=id;scope.importSequence.current++;},
     identity:{current:''},canvasScope:{current:''},apiRef:{current:null},
     settleConfirmation:()=>{},newDraft:()=>draft,migrateDirectorDraft:value=>value,restoreDraftForSession,
     canvasProjectScope:(owner,key)=>{owners.canvas.push([owner,key]);return `${owner}|key-sha256:fixture`;},

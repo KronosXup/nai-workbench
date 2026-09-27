@@ -4,7 +4,6 @@ import {
   ArrowDownToLine,
 
   ArrowRight,
-  ChevronDown,
   Clock,
   Copy,
   Download,
@@ -50,7 +49,7 @@ import type {
 import ImageViewer from "./ImageViewer";
 import MaskEditor from "./MaskEditor";
 import CanvasEditor from "./CanvasEditor";
-import { canvasProjectScope } from "./canvasProject";
+import { canvasProjectScope, type CanvasProject } from "./canvasProject";
 import LocalPixelSnap from "./LocalPixelSnap";
 import ImageImportDialog from "./ImageImportDialog";
 import type { ImageUse } from "./ImageImportDialog";
@@ -65,7 +64,7 @@ import { directorFromJob, directorMatchesJob, directorSourceIssue, migrateDirect
 import type { DirectorDraft, DirectorSource } from "./director";
 import WorkspaceHeader from "./WorkspaceHeader";
 import { composePrompts } from "./promptPresets";
-import { generationParameters } from "./modelSettings";
+import { generationParameters, modelGenerationDefaults } from "./modelSettings";
 import TokenMeter from "./TokenMeter";
 import type { TagSuggestion } from "./TagInput";
 
@@ -215,28 +214,6 @@ function Field({
     </label>
   );
 }
-function Section({
-  name,
-  children,
-  initial = false,
-  number,
-}: {
-  name: string;
-  children: ReactNode;
-  initial?: boolean;
-  number?: string;
-}) {
-  return (
-    <details className="section" open={initial || undefined}>
-      <summary>
-        <span className="section-number">{number ?? "+"}</span>
-        <span>{name}</span>
-        <ChevronDown size={15} />
-      </summary>
-      <div className="section-body">{children}</div>
-    </details>
-  );
-}
 function ImageView({
   row,
   className = "",
@@ -324,6 +301,7 @@ export default function App() {
   const [rows, setRows] = useState<LocalImage[]>([]);
   const [jobs, setJobs] = useState<PreviewJob[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
+  const selectedIdRef = useRef(selectedId);
   const [blankCanvas, setBlankCanvas] = useState(false);
   const [queuePaused, setQueuePaused] = useState(false);
   const [queueEncoding, setQueueEncoding] = useState(false);
@@ -393,6 +371,11 @@ export default function App() {
   };
   const setParam = (key: string, value: unknown) =>
     setDraft((d) => ({ ...d, parameters: { ...d.parameters, [key]: value } }));
+  function chooseResult(id?: string) {
+    selectedIdRef.current = id;
+    importSequence.current++;
+    setSelectedId(id);
+  }
   // Model changes preserve imported references; shared validation asks the user to resolve conflicts.
   const patchDraft = (patch: Partial<Draft>) =>
     setDraft((d) => ({ ...d, ...patch }));
@@ -438,10 +421,19 @@ export default function App() {
     queueEncoding ? 'Vibe 编码：等待服务器结果' : runningJob ? gateJobLabel(runningJob, queueNow) : '本机队列等待发送';
   const quoteUnitLabel = (units: number) => quote?.unit_label.includes("V5") ? `${units} 次 V5` : `${units} 积分`;
   function closeMask() { setShowMask(false); setPendingMaskDraft(null); }
-  function saveMask(mask: string) {
+  async function saveMask(mask: string, editedSource?: string, project?: CanvasProject) {
+    const seq = generation.current, owner = identity.current, scope = canvasScope.current;
+    const capturedDraft = draftRef.current;
+    if (project && editedSource) {
+      // Keep ordinary paint layers editable; the binary mask is saved separately.
+      if (!owner || !scope) throw new Error("当前连接已改变，请重新打开画布。");
+      await local.saveCanvasProject(scope, editedSource, project);
+      if (seq !== generation.current || owner !== identity.current || scope !== canvasScope.current || capturedDraft !== draftRef.current)
+        throw new Error("当前草稿已改变，请重新打开画布。");
+    }
     setDraft(current => {
       const source = pendingMaskDraft ?? current;
-      return { ...source, operation: "inpaint", parameters: { ...source.parameters, mask } };
+      return { ...source, operation: "inpaint", parameters: { ...source.parameters, ...(editedSource ? { image: editedSource } : {}), mask } };
     });
     closeMask();
     setPage("draw");
@@ -479,6 +471,22 @@ export default function App() {
       setConfirmation(request);
     });
   }
+  async function resetGenerationSettings() {
+    const originalDraft = draftRef.current;
+    const seq = generation.current;
+    const owner = identity.current;
+    const model = effectiveModelForOperation(originalDraft.model, originalDraft.operation);
+    const accepted = await askConfirmation({
+      title: "重置生成设置？",
+      message: "将生成参数恢复为当前模型默认值，质量预设恢复为“标准”。提示词和图片保持不变。",
+      confirmLabel: "确认重置",
+    });
+    if (!accepted || seq !== generation.current || owner !== identity.current || originalDraft !== draftRef.current) return;
+    const defaults = modelGenerationDefaults(model);
+    setDraft(current => current === originalDraft
+      ? { ...current, qualityPreset: "standard", parameters: { ...current.parameters, ...defaults } }
+      : current);
+  }
   useEffect(
     () => () => {
       confirmationPending.current?.resolve(false);
@@ -496,6 +504,8 @@ export default function App() {
     if (identity.current)
       void local.saveDraft(identity.current, draftRef.current).catch(() => {});
     generation.current++;
+    submitting.current = false;
+    setBusy(false);
     identity.current = "";
     canvasScope.current = "";
     submitCache.current = null;
@@ -510,7 +520,7 @@ export default function App() {
     setQueuePaused(false); setQueueEncoding(false); setEncodingPaused(false); setEncodingRetryAt(undefined); setEncodingWaitReason(undefined);
     setBlankCanvas(false); setPendingMaskDraft(null); setShowMask(false); setCanvasInput(null); setPixelInput(null);
     setRows([]);
-    setSelectedId(undefined);
+    chooseResult(undefined);
     setLoaded(false);
     setDraft(newDraft());
     setQuote(null);
@@ -544,7 +554,7 @@ export default function App() {
     setSaveIssue(null);
     setQueuePaused(false); setQueueEncoding(false); setEncodingPaused(false); setEncodingRetryAt(undefined); setEncodingWaitReason(undefined);
     setBlankCanvas(false); setPendingMaskDraft(null); setShowMask(false); setCanvasInput(null); setPixelInput(null);
-    setSelectedId(undefined);
+    chooseResult(undefined);
     setDraft(newDraft());
     setQuote(null);
     setQuoteError(null);
@@ -680,6 +690,7 @@ export default function App() {
               }
             } else if (pageRef.current === 'draw' && (!newestSaved || (existing.job.completed_at ?? existing.job.created_at) >= (newestSaved.job.completed_at ?? newestSaved.job.created_at))) {
               newestSaved = existing;
+              selectedIdRef.current = existing.id;
               setSelectedId(existing.id);
               setBlankCanvas(false);
             }
@@ -985,8 +996,10 @@ export default function App() {
     } catch (e) {
       if (seq === generation.current) fail(e);
     } finally {
-      submitting.current=false;
-      if (seq === generation.current) setBusy(false);
+      if (seq === generation.current) {
+        submitting.current=false;
+        setBusy(false);
+      }
     }
   }
   function submitMain() {
@@ -1109,20 +1122,24 @@ export default function App() {
     setPixelInput({image:p.image,width:Number(p.source_width??p.width),height:Number(p.source_height??p.height)});
   }
   async function openResultCanvas(row: LocalImage) {
-    const seq=generation.current,owner=identity.current;
+    const seq=generation.current,owner=identity.current,originPage=pageRef.current,selection=++importSequence.current,capturedDraft=draftRef.current,capturedSelection=selectedIdRef.current;
+    const current=()=>seq===generation.current && owner===identity.current && originPage===pageRef.current && selection===importSequence.current &&
+      draftRef.current===capturedDraft && capturedSelection===row.id && selectedIdRef.current===capturedSelection;
     try {
       const image=await readImage(new File([row.blob],row.result.filename,{type:row.result.media_type}));
-      if(seq!==generation.current || owner!==identity.current)return;
+      if(!current())return;
       setCanvasInput({image:image.data,width:image.width,height:image.height,scope:canvasScope.current});
-    } catch(error){if(seq===generation.current)fail(error);}
+    } catch(error){if(current())fail(error);}
   }
   async function openResultPixelSnap(row: LocalImage) {
-    const seq=generation.current,owner=identity.current;
+    const seq=generation.current,owner=identity.current,originPage=pageRef.current,selection=++importSequence.current,capturedDraft=draftRef.current,capturedSelection=selectedIdRef.current;
+    const current=()=>seq===generation.current && owner===identity.current && originPage===pageRef.current && selection===importSequence.current &&
+      draftRef.current===capturedDraft && capturedSelection===row.id && selectedIdRef.current===capturedSelection;
     try {
       const image=await readImage(new File([row.blob],row.result.filename,{type:row.result.media_type}));
-      if(seq!==generation.current || owner!==identity.current)return;
+      if(!current())return;
       setPixelInput({image:image.data,width:image.width,height:image.height});
-    } catch(error){if(seq===generation.current)fail(error);}
+    } catch(error){if(current())fail(error);}
   }
   async function uploadImage(kind: 'image'|'mask'|'vibe'|'character'|'inpaint'|'upscale',file:File) {
     const seq=generation.current,owner=identity.current,originPage=pageRef.current,selection=++importSequence.current;
@@ -1204,20 +1221,26 @@ export default function App() {
       setImports(images);setDragging(false);
     } catch(e){if(current())fail(e);}
   }
+  function cancelImageImport() {
+    importSequence.current++;
+    setImports([]);
+  }
   function importParameters(options:ImportOptions) {
     const metadata=imports[0]?.metadata;if(!metadata)return;
     const next=applyMetadata(draftRef.current,metadata,options),models=caps?.models??fallbackModels;
     if(!models.some(m=>m.id===next.model)){fail(new Error('图片中的模型当前不可用，请取消“模型与生成设置”后导入'));return;}
     const limit=models.find(m=>m.id===effectiveModelForOperation(next.model,next.operation))?.max_characters??0;
-    if(next.parameters.character_prompts.length>limit){fail(new Error(`当前模型最多支持 ${limit} 个角色，请调整导入选项`));return;}
+    if(next.parameters.character_prompts.filter(character => character.enabled !== false).length>limit){fail(new Error(`当前模型最多支持 ${limit} 个角色，请调整导入选项`));return;}
     setDraft(next);setImports(v=>v.slice(1));setPage('draw');setMobileTab('edit');notify('已导入选中的参数');
   }
   async function useAs(operation: Operation | "vibe" | "character", row = selected) {
     if (!row) return;
     const seq = generation.current,
-      owner = identity.current, originPage = pageRef.current, selection = ++importSequence.current;
+      owner = identity.current, originPage = pageRef.current, selection = ++importSequence.current,
+      capturedSelection = selectedIdRef.current;
     // Decoding a large local image must not overwrite a newer import or reopen a page the user left.
-    const current = () => seq === generation.current && owner === identity.current && originPage === pageRef.current && selection === importSequence.current;
+    const current = () => seq === generation.current && owner === identity.current && originPage === pageRef.current &&
+      selection === importSequence.current && selectedIdRef.current === capturedSelection;
     try {
       if (!row.result.media_type.startsWith("image/"))
         throw new Error("请选择一张图片。");
@@ -1235,11 +1258,18 @@ export default function App() {
       notify('已回填导演工具的原图和参数');
       return;
     }
-    const seq = generation.current;
+    const seq = generation.current,
+      owner = identity.current,
+      originPage = pageRef.current,
+      selection = ++importSequence.current,
+      capturedDraft = draftRef.current,
+      capturedSelection = selectedIdRef.current;
+    const current = () => seq === generation.current && owner === identity.current && originPage === pageRef.current &&
+      selection === importSequence.current && draftRef.current === capturedDraft && selectedIdRef.current === capturedSelection;
     let actual: ImportedImage | undefined;
     try { actual = await readImage(new File([row.blob], row.result.filename, { type: row.result.media_type })); } catch { /* Old or non-PNG results retain their request parameters. */ }
-    if (seq !== generation.current) return;
-    setSelectedId(row.id);
+    if (!current()) return;
+    chooseResult(row.id);
     setBlankCanvas(false);
     const j = row.job;
     setDraft((d) => {
@@ -1375,120 +1405,36 @@ export default function App() {
     }
   }
   const models = caps?.models?.length ? caps.models : fallbackModels;
+  const importModel = effectiveModelForOperation(draft.model, draft.operation);
+  const importModelCaps = models.find(model => model.id === importModel);
+  const vibeUnavailable = importModel.startsWith('nai-diffusion-5') ? 'V5 不支持 Vibe Transfer'
+    : importModelCaps?.vibe_transfer === false ? '当前模型不支持 Vibe Transfer'
+    : draft.parameters.character_reference_images.length ? '请先移除精准参考，再添加 Vibe'
+    : draft.parameters.reference_image_multiple.length >= 16 ? 'Vibe 参考最多 16 项' : undefined;
+  const characterUnavailable = !importModel.startsWith('nai-diffusion-4-5') ? '精准参考需要 V4.5 模型'
+    : importModelCaps?.precise_reference === false ? '当前模型未提供精准参考'
+    : draft.parameters.reference_image_multiple.length ? '请先移除 Vibe，再添加精准参考'
+    : draft.parameters.character_reference_images.length >= 16 ? '精准参考最多 16 项' : undefined;
+  const imageUseUnavailable: Partial<Record<ImageUse, string>> = {
+    ...(caps?.operations && !caps.operations.includes('img2img') ? {image: '当前服务未提供图生图'} : {}),
+    ...(vibeUnavailable ? {vibe: vibeUnavailable} : {}),
+    ...(characterUnavailable ? {character: characterUnavailable} : {}),
+    ...(caps?.operations && !caps.operations.includes('inpaint') ? {inpaint: '当前服务未提供局部重绘'} : {}),
+    ...(caps?.operations && !caps.operations.includes('upscale') ? {upscale: '当前服务未提供图片放大'} : {}),
+    ...(caps?.operations && !caps.operations.includes('augment') ? {augment: '当前服务未提供导演工具'} : {}),
+  };
   const effectiveOperation = page === "batch" && !usesGenerationSettings(draft.operation) ? "generate" : draft.operation;
   const configurationIssue = configurationIssueFor({ ...draft, operation: effectiveOperation }, models, caps?.operations);
   const generationBlocked = Boolean(configurationIssue || (quoteError && !quoteError.retryable));
-  const maxCharacters = models.find(m => m.id === effectiveModelForOperation(draft.model, effectiveOperation))?.max_characters ?? 6;
   const batchCapacityIssue = batchTasks().length + queuePending > MAX_PENDING
     ? `本次 ${batchTasks().length} 张，队列还可加入 ${Math.max(0, MAX_PENDING - queuePending)} 张。` : "";
-  const characters = (
-    <Section
-      name="角色提示词"
-      number="02"
-      initial
-    >
-      <label className="field">角色定位
-        <select aria-label="角色定位" value={draft.parameters.use_coords === true ? "manual" : "auto"} onChange={e => setParam("use_coords", e.target.value === "manual")}>
-          <option value="auto">自动安排位置</option><option value="manual">手动指定位置</option>
-        </select>
-      </label>
-      <div className="characters">
-        {draft.parameters.character_prompts.map((c, i) => (
-          <div className="character-editor" key={i}>
-            <header>
-              <span>角色 {i + 1}</span>
-              <label><input aria-label={`启用角色 ${i + 1}`} type="checkbox" checked={c.enabled !== false} onChange={e => setParam("character_prompts", draft.parameters.character_prompts.map((v,j) => j === i ? {...v, enabled:e.target.checked} : v))}/>启用</label>
-              {[-1, 1].map(offset => <button key={offset} aria-label={`${offset < 0 ? "上移" : "下移"}角色 ${i + 1}`} disabled={i + offset < 0 || i + offset >= draft.parameters.character_prompts.length} onClick={() => { const next = [...draft.parameters.character_prompts]; [next[i], next[i+offset]] = [next[i+offset], next[i]]; setParam("character_prompts", next); }}>{offset < 0 ? "↑" : "↓"}</button>)}
-              <button
-                className="icon-button"
-                aria-label={`删除角色 ${i + 1}`}
-                onClick={() =>
-                  setParam(
-                    "character_prompts",
-                    draft.parameters.character_prompts.filter(
-                      (_, j) => i !== j,
-                    ),
-                  )
-                }
-              >
-                <X size={14} />
-              </button>
-            </header>
-            <textarea
-              aria-label={`角色 ${i + 1} 提示词`}
-              rows={3}
-              placeholder="角色的外观、服装与动作"
-              value={c.prompt}
-              onChange={(e) =>
-                setParam(
-                  "character_prompts",
-                  draft.parameters.character_prompts.map((v, j) =>
-                    j === i ? { ...v, prompt: e.target.value } : v,
-                  ),
-                )
-              }
-            />
-            <textarea
-              aria-label={`角色 ${i + 1} 负面词`}
-              rows={2}
-              placeholder="此角色的负面提示词"
-              value={c.negative_prompt}
-              onChange={(e) =>
-                setParam(
-                  "character_prompts",
-                  draft.parameters.character_prompts.map((v, j) =>
-                    j === i ? { ...v, negative_prompt: e.target.value } : v,
-                  ),
-                )
-              }
-            />
-            {draft.parameters.use_coords === true && <><div className="character-position-grid" aria-label={`角色 ${i+1} 画面位置`}>
-              {[.1,.5,.9].flatMap((y,yi) => [.1,.5,.9].map((x,xi) => <button key={`${x}-${y}`} aria-label={`角色 ${i+1} 定位 ${["上","中","下"][yi]}${["左","中","右"][xi]}`} aria-pressed={c.x === x && c.y === y} onClick={() => setParam("character_prompts", draft.parameters.character_prompts.map((v,j) => j===i?{...v,x,y}:v))}>·</button>))}
-            </div><div className="field-grid">
-              {(["x", "y"] as const).map((axis) => (
-                <Field key={axis} label={`位置 ${axis.toUpperCase()}`}>
-                  <NumberInput
-                    label={`角色 ${i + 1} ${axis}`}
-                    value={c[axis]}
-                    min={0}
-                    max={1}
-                    step={0.1}
-                    onChange={(n) =>
-                      setParam(
-                        "character_prompts",
-                        draft.parameters.character_prompts.map((v, j) =>
-                          j === i ? { ...v, [axis]: n } : v,
-                        ),
-                      )
-                    }
-                  />
-                </Field>
-              ))}
-            </div></>}
-          </div>
-        ))}
-      </div>
-      <button
-        disabled={draft.parameters.character_prompts.length >= maxCharacters}
-        onClick={() =>
-          setParam("character_prompts", [
-            ...draft.parameters.character_prompts,
-            { prompt: "", negative_prompt: "", x: 0.5, y: 0.5 },
-          ])
-        }
-      >
-        <Plus size={15} />
-        添加角色
-      </button>
-    </Section>
-  );
   const refs = (
     <ReferenceImages
       draft={draft}
       models={models}
       operations={caps?.operations}
       patch={patchDraft}
-      onUpload={(kind, file) => { void uploadImage(kind, file); }}
+      onUpload={(kind, file) => { if (kind === 'mask') void uploadImage(kind, file); else void openImages([file]); }}
       onImport={() => importInput.current?.click()}
       onNewCanvas={openBlankDrawingCanvas}
       onEditSource={openSourceCanvas}
@@ -1522,7 +1468,7 @@ export default function App() {
     >
       <input ref={importInput} hidden type="file" multiple accept="image/png,image/jpeg,image/webp" aria-label="导入图片文件" onChange={e=>{void openImages(Array.from(e.target.files??[]));e.target.value='';}}/>
       {dragging && user && <div className="image-drop-overlay">松开导入图片<span>{page === 'director' ? '载入导演工具原图' : '选择图生图、Vibe、精准参考或导入生成参数'}</span></div>}
-      {user && !showMask && imports.length>0 && <ImageImportDialog key={imports[0].name+imports.length} image={imports[0]} remaining={imports.length} model={effectiveModelForOperation(draft.model,draft.operation)} onClose={()=>{importSequence.current++;setImports([]);}} onUse={kind=>{try{acceptImage(kind,imports[0]);setImports(v=>v.slice(1));}catch(e){fail(e);}}} onMetadata={importParameters}/>}
+      {user && !showMask && imports.length>0 && <ImageImportDialog key={`${importSequence.current}:${imports.length}`} image={imports[0]} remaining={imports.length} model={importModel} unavailable={imageUseUnavailable} onClose={cancelImageImport} onUse={kind=>{try{acceptImage(kind,imports[0]);setImports(v=>v.slice(1));}catch(e){fail(e);}}} onMetadata={importParameters}/>}
       {user && <WorkspaceHeader page={page} onPage={setPage} user={user} userRefreshIssue={userRefreshIssue} pending={queuePending}
         onQueue={() => setShowQueue(true)} onLibrary={() => setShowLibrary("all")}
         onNewCanvas={openBlankDrawingCanvas}
@@ -1599,13 +1545,13 @@ export default function App() {
               quote={quote}
               quoteError={quoteError}
               configurationIssue={configurationIssue}
+              onResetGenerationSettings={() => void resetGenerationSettings()}
               quoteRequest={() => void requestQuote()}
               submit={() => void submitMain()}
-              characters={characters}
               references={refs}
               rows={drawingRows}
               selected={blankCanvas ? undefined : drawingSelected}
-              select={(row) => { setSelectedId(row.id); setBlankCanvas(false); }}
+              select={(row) => { chooseResult(row.id); setBlankCanvas(false); }}
               renderImage={(row) => <ImageView row={row} />}
               preview={blankCanvas ? undefined : preview}
               onSuggestTags={suggestTags}
@@ -1616,7 +1562,7 @@ export default function App() {
               onPage={setPage}
               mobile={mobileTab}
               onMobileChange={setMobileTab}
-              onEnlarge={() => { if (drawingSelected) { setSelectedId(drawingSelected.id); setLightbox(true); } }}
+              onEnlarge={() => { if (drawingSelected) { chooseResult(drawingSelected.id); setLightbox(true); } }}
               onReuse={() => drawingSelected && reuse(drawingSelected)}
               onEditSelected={(row) => void openResultCanvas(row)}
               onPixelSelected={(row) => void openResultPixelSnap(row)}
@@ -1826,7 +1772,7 @@ export default function App() {
                           <button
                             aria-label={`查看历史图片：${r.job.prompt}`}
                             onClick={() => {
-                              setSelectedId(r.id);
+                              chooseResult(r.id);
                               setBlankCanvas(false);
                               setPage("draw");
                               setMobileTab("result");
@@ -1922,7 +1868,7 @@ export default function App() {
                         <button
                           className="gallery-image"
                           onClick={() => {
-                            setSelectedId(row.id);
+                            chooseResult(row.id);
                             setBlankCanvas(false);
                             setLightbox(true);
                           }}
@@ -2370,6 +2316,7 @@ export default function App() {
       {showMask && (pendingMaskDraft ?? draft).parameters.image && (
         <MaskEditor
           image={(pendingMaskDraft ?? draft).parameters.image!}
+          scope={canvasScope.current}
           initial={(pendingMaskDraft ?? draft).parameters.mask}
           onClose={closeMask}
           onSave={saveMask}

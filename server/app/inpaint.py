@@ -7,6 +7,28 @@ import io
 from PIL import Image, ImageFilter, PngImagePlugin
 
 
+def _selected_mask_grid(mask: Image.Image, width: int, height: int) -> Image.Image:
+    """Return the block-grid selection after the exact generation threshold."""
+    if width < 8 or height < 8 or width % 8 or height % 8:
+        raise ValueError("局部重绘尺寸必须是 8 的整数倍")
+    rgba = mask.convert("RGBA")
+    alpha = rgba.getchannel("A")
+    selection = alpha if alpha.getextrema() != (255, 255) else rgba.convert("L")
+    reduced = selection.resize((width // 8, height // 8), Image.Resampling.LANCZOS)
+    reduced = reduced.point(lambda value: 255 if value > 155 else 0)
+    if not reduced.getbbox():
+        raise ValueError("蒙版没有选中可重绘的区域")
+    return reduced
+
+
+def validate_mask_selection(mask_data: bytes, source_size: tuple[int, int], width: int, height: int) -> None:
+    """Validate the same mask size and sampled selection used by ``prepare_mask``."""
+    with Image.open(io.BytesIO(mask_data)) as mask:
+        if mask.size != source_size:
+            raise ValueError("蒙版尺寸必须与源图一致")
+        _selected_mask_grid(mask, width, height)
+
+
 def prepare_mask(source_data: bytes, mask_data: bytes, width: int, height: int) -> bytes:
     """Turn a painted selection into the block-aligned mask used by image generation.
 
@@ -17,14 +39,7 @@ def prepare_mask(source_data: bytes, mask_data: bytes, width: int, height: int) 
         expected = (width, height)
         if source.size != mask.size:
             raise ValueError("蒙版尺寸必须与源图一致")
-        rgba = mask.convert("RGBA")
-        alpha = rgba.getchannel("A")
-        selection = alpha if alpha.getextrema() != (255, 255) else rgba.convert("L")
-        # The official canvas resolves the selection on the model's 8-pixel grid.
-        reduced = selection.resize((width // 8, height // 8), Image.Resampling.LANCZOS)
-        reduced = reduced.point(lambda value: 255 if value > 155 else 0)
-        if not reduced.getbbox():
-            raise ValueError("蒙版没有选中可重绘的区域")
+        reduced = _selected_mask_grid(mask, width, height)
         aligned = reduced.resize(expected, Image.Resampling.NEAREST)
         output = io.BytesIO()
         aligned.convert("RGB").save(output, format="PNG")

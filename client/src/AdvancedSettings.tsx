@@ -2,14 +2,15 @@ import { useState, type ReactNode } from 'react';
 import { Check, ChevronDown, RotateCcw, Sprout, X } from 'lucide-react';
 import type { Parameters } from './types';
 import NaiSelect from './NaiSelect';
-import { defaultNoiseSchedule, modelGenerationDefaults, noiseSchedulesFor, samplersFor, varietySigma } from './modelSettings';
+import { defaultNoiseSchedule, noiseSchedulesFor, samplersFor, varietySigma } from './modelSettings';
 import './advancedSettings.css';
 
-export default function AdvancedSettings({ model, params, patch, onClose, onSampler }: {
+export default function AdvancedSettings({ model, params, patch, onClose, onSampler, onReset }: {
   model: string; params: Parameters; patch: (changes: Partial<Parameters>) => void;
-  onClose: () => void; onSampler: (value: string) => void;
+  onClose: () => void; onSampler: (value: string) => void; onReset: () => void;
 }) {
   const [more, setMore] = useState(false);
+  const [compatibilityOpen, setCompatibilityOpen] = useState(Number(params.uncond_scale ?? 1) !== 1 || (!model.startsWith('nai-diffusion-5') && params.prefer_brownian !== true));
   const v5 = model.startsWith('nai-diffusion-5'), v3 = model.endsWith('-3');
   const samplers = samplersFor(model), schedules = noiseSchedulesFor(model, params.sampler);
   const toggle = (label: string, checked: boolean, onChange: () => void, disabled = false) =>
@@ -17,24 +18,26 @@ export default function AdvancedSettings({ model, params, patch, onClose, onSamp
       {checked ? <Check size={14}/> : <X size={14}/>} {label}
     </button>;
   const flag = (key: string, label: string, disabled = false) => toggle(label, params[key] === true, () => patch({[key]:params[key] !== true}), disabled);
-  const slider = (key: string, label: string, fallback: number, min: number, max: number, step: number, accessory?: ReactNode) => {
+  const slider = (key: string, label: string, fallback: number, min: number, max: number, step: number, accessory?: ReactNode, inputMax = max) => {
     const value = Number(params[key] ?? fallback);
-    const update = (next: number) => { if (Number.isFinite(next)) patch({[key]:Math.min(max, Math.max(min, next))}); };
+    // The official sliders cover common values; numeric edits also preserve
+    // valid extended values imported from image metadata.
+    const update = (next: number) => { if (Number.isFinite(next)) patch({[key]:Math.min(inputMax, Math.max(min, next))}); };
     return <div className="nai-setting-slider" key={key}>
       <div className="nai-setting-label"><span>{label}</span>{accessory}</div>
       <div className="nai-setting-controls">
-        <input type="number" aria-label={label} min={min} max={max} step={step} value={value} onChange={e => update(e.currentTarget.valueAsNumber)}/>
+        <input type="number" aria-label={label} min={min} max={inputMax} step={step} value={value} onChange={e => update(e.currentTarget.valueAsNumber)}/>
         <input type="range" aria-label={`${label}滑杆`} min={min} max={max} step={step} value={value} onChange={e => update(e.currentTarget.valueAsNumber)}/>
       </div>
     </div>;
   };
   return <section className="nai-advanced" aria-label="生成参数">
     <header className="nai-settings-heading"><span>生成参数</span>
-      <button type="button" title="重置生成参数" aria-label="重置生成参数" onClick={() => patch(modelGenerationDefaults(model))}><RotateCcw size={17}/></button>
+      <button type="button" title="重置生成设置" aria-label="重置生成设置" onClick={onReset}><RotateCcw size={17}/></button>
       <button type="button" title="收起生成参数" aria-label="收起生成参数" aria-expanded="true" onClick={onClose}><ChevronDown size={18}/></button>
     </header>
-    {slider('steps', '步数', 23, 1, 50, 1)}
-    {slider('scale', '提示词引导', 5, 0, 20, .1, !v5 && toggle('Variety+', Number(params.skip_cfg_above_sigma) > 0, () => patch({skip_cfg_above_sigma: Number(params.skip_cfg_above_sigma) > 0 ? null : varietySigma(model)})))}
+    {slider('steps', '步数', 23, 1, 50, 1, undefined, 100)}
+    {slider('scale', '提示词引导', 5, 0, 10, .1, !v5 && toggle('Variety+', Number(params.skip_cfg_above_sigma) > 0, () => patch({skip_cfg_above_sigma: Number(params.skip_cfg_above_sigma) > 0 ? null : varietySigma(model)})), 30)}
     <div className="nai-settings-pair">
       <label>种子<div className="nai-settings-seed"><input type="number" aria-label="完整种子" min={0} max={4294967295} placeholder="随机" value={params.seed < 0 ? '' : params.seed}
         onChange={e => { const value = e.currentTarget.valueAsNumber; if(e.currentTarget.value === '') patch({seed:-1}); else if(Number.isFinite(value)) patch({seed:Math.min(4294967295,Math.max(0,Math.trunc(value)))}); }}/>
@@ -51,11 +54,14 @@ export default function AdvancedSettings({ model, params, patch, onClose, onSamp
         ...schedules.map(value => ({value,label:value})),
         ...(params.noise_schedule && !schedules.includes(String(params.noise_schedule)) ? [{value:String(params.noise_schedule),label:`${params.noise_schedule}（旧设置）`}] : []),
       ]}/></label>}
-      {slider('uncond_scale','负面提示词强度',1,0,2,.05)}
-      <div className="nai-setting-flags">
-        {!v5 && flag('prefer_brownian','Brownian 噪声')}
-        {v3 && <>{flag('sm','SMEA')}{flag('sm_dyn','SMEA Dyn',params.sm !== true)}{flag('dynamic_thresholding','Decrisp')}{flag('legacy_v3_extend','旧版 V3 扩展')}</>}
-      </div>
+      <button type="button" className="nai-more-settings nai-settings-compatibility-toggle" aria-expanded={compatibilityOpen} onClick={() => setCompatibilityOpen(!compatibilityOpen)}>兼容参数<ChevronDown size={14} className={compatibilityOpen ? 'is-open' : ''}/></button>
+      {compatibilityOpen && <div className="nai-settings-compatibility">
+        {slider('uncond_scale','负面提示词强度',1,0,2,.05)}
+        <div className="nai-setting-flags">
+          {!v5 && flag('prefer_brownian','Brownian 噪声')}
+          {v3 && <>{flag('sm','SMEA')}{flag('sm_dyn','SMEA Dyn',params.sm !== true)}{flag('dynamic_thresholding','Decrisp')}{flag('legacy_v3_extend','旧版 V3 扩展')}</>}
+        </div>
+      </div>}
     </div>}
   </section>;
 }

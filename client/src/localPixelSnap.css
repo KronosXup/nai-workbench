@@ -45,3 +45,6 @@
   .local-pixel-snap-footer button { flex: 1; white-space: nowrap; font-size: 12px; }
   .local-pixel-snap-previews { flex: none; height: 280px; }
 }
+@media (min-width: 761px) and (max-height: 520px) {
+  .local-pixel-snap { height: calc(100dvh - 48px); min-height: 0; }
+}

@@ -154,7 +154,7 @@ export default function ReferenceImages({
 
   const updateStrength = (value: number) =>
     patch({ parameters: draft.operation === "inpaint"
-      ? { ...params, img2img: { strength: Math.max(0.01, clamp01(value)), color_correct: true } }
+      ? { ...params, img2img: { ...params.img2img, strength: Math.max(0.01, clamp01(value)), color_correct: params.img2img?.color_correct ?? true } }
       : { ...params, strength: clamp01(value) } });
   const updateNoise = (value: number) =>
     patch({ parameters: { ...params, noise: clamp01(value) } });
@@ -281,7 +281,7 @@ export default function ReferenceImages({
                 title={draft.operation === "inpaint" ? "绘制蒙版" : "绘制：编辑源图"}
                 disabled={draft.operation === "inpaint" && !can("inpaint")}
                 onClick={draft.operation === "inpaint" ? onMask : onEditSource}><Pencil size={16} /></button>
-              <button type="button" className="nai-ri-icon-action" aria-label="替换源图" title={sourceEnabledReason || "替换源图"} disabled={!sourceCanUpload} onClick={() => sourceInput.current?.click()}><SquareArrowUp size={16} /></button>
+              <button type="button" className="nai-ri-icon-action" aria-label="替换源图" title="替换源图" onClick={() => sourceInput.current?.click()}><SquareArrowUp size={16} /></button>
               <button
                 type="button"
                 className="nai-ri-icon-action nai-ri-remove-source"
@@ -292,7 +292,7 @@ export default function ReferenceImages({
             </div>
           ) : (
             <div className="nai-ri-source-actions nai-ri-source-empty-actions">
-              <button type="button" aria-label="上传图生图源图" disabled={!sourceCanUpload} title={sourceEnabledReason || "上传图片"} onClick={() => sourceInput.current?.click()}><Upload size={20} /></button>
+              <button type="button" aria-label="上传图生图源图" title="上传图片" onClick={() => sourceInput.current?.click()}><Upload size={20} /></button>
               <button type="button" aria-label="新建绘图画布" title="新建画布" onClick={onNewCanvas}><Paintbrush size={20} /></button>
             </div>
           )}
@@ -302,7 +302,6 @@ export default function ReferenceImages({
             type="file"
             accept="image/png,image/jpeg,image/webp"
             aria-label="上传或替换图生图源图"
-            disabled={!sourceCanUpload}
             onChange={event => clearFileInput(event, file => onUpload(sourceUploadKind, file))}
           />
         </div>

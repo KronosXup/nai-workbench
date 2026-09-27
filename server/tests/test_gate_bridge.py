@@ -1,9 +1,12 @@
 import asyncio
+import base64
+import io
 import json
 import uuid
 
 import httpx
 import pytest
+from PIL import Image, ImageDraw
 
 from app.adapters import AdapterError, Artifact, NaiAdapter
 import app.adapters as adapters
@@ -15,6 +18,20 @@ import app.gate_bridge as gate_bridge
 def task(model='nai-diffusion-4-5-full'):
     return dict(request_id=str(uuid.uuid4()), operation='generate', model=model, prompt='fixture', negative_prompt='', label='test',
                 parameters=dict(width=832,height=1216,steps=28,scale=5,seed=1,n_samples=1))
+
+
+def inpaint_images(size=(512, 512), *, selection=True, thin=False, offset=0):
+    source = io.BytesIO()
+    Image.new('RGB', size, 'navy').save(source, format='PNG')
+    mask_image = Image.new('RGB', size, 'black')
+    if thin:
+        mask_image.putpixel((1, 1), (255, 255, 255))
+    elif selection:
+        ImageDraw.Draw(mask_image).rectangle((size[0] // 4 + offset, size[1] // 4,
+                                               size[0] * 3 // 4 + offset, size[1] * 3 // 4), fill='white')
+    mask = io.BytesIO()
+    mask_image.save(mask, format='PNG')
+    return base64.b64encode(source.getvalue()).decode(), base64.b64encode(mask.getvalue()).decode()
 
 
 def test_bridge_honors_stream_choice_through_gate_route_and_final_delivery():
@@ -157,6 +174,58 @@ def test_quotes_use_gate_units_and_reference_surcharges():
     assert estimate(item)['units']==5
 
 
+def test_inpaint_quote_rejects_blank_and_subthreshold_masks_before_queueing():
+    async def gate(request):
+        if request.url.path == '/user/information':
+            return httpx.Response(200, json={'username': 'fixture'})
+        raise AssertionError(f'unexpected Gate request: {request.url.path}')
+
+    async def run():
+        app = create_app('http://gate.fixture', httpx.MockTransport(gate))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+            headers = {'Authorization': 'Bearer fixture'}
+            for mask in (inpaint_images((64, 64), selection=False)[1],
+                         inpaint_images((64, 64), thin=True)[1]):
+                item = task()
+                item['operation'] = 'inpaint'
+                image, _ = inpaint_images((64, 64))
+                item['parameters'].update(width=64, height=64, steps=29, image=image, mask=mask)
+                response = await client.post('/api/quote', headers=headers, json=item)
+                assert response.status_code == 422
+                assert response.json()['detail'] == '蒙版没有选中可重绘的区域'
+
+    asyncio.run(run())
+
+
+def test_inpaint_quote_reuses_a_bounded_mask_preflight_cache(monkeypatch):
+    import app.gate_bridge as bridge
+
+    bridge._mask_preflight_cache.clear()
+    original = bridge.validate_mask_selection
+    calls = []
+
+    def counted(*args):
+        calls.append(1)
+        return original(*args)
+
+    monkeypatch.setattr(bridge, 'validate_mask_selection', counted)
+    image, mask = inpaint_images()
+    item = task()
+    item['operation'] = 'inpaint'
+    item['parameters'].update(width=512, height=512, image=image, mask=mask)
+    first, second = estimate(item), estimate(item)
+    assert first == second
+    assert len(calls) == 1
+    for offset in range(1, bridge.MASK_PREFLIGHT_CACHE_MAX_ENTRIES + 2):
+        _, distinct_mask = inpaint_images(offset=offset)
+        distinct = task()
+        distinct['operation'] = 'inpaint'
+        distinct['parameters'].update(width=512, height=512, image=image, mask=distinct_mask)
+        estimate(distinct)
+    assert len(bridge._mask_preflight_cache) == bridge.MASK_PREFLIGHT_CACHE_MAX_ENTRIES
+    assert len(calls) == bridge.MASK_PREFLIGHT_CACHE_MAX_ENTRIES + 2
+
+
 def test_v5_curated_is_listed_quoted_and_forwarded_as_curated():
     from app.adapters import build_request
 
@@ -222,7 +291,8 @@ def test_v5_curated_inpaint_maps_request_and_uses_v45_quote_classification():
 def test_v5_curated_inpaint_quote_counts_v45_vibe_encoding_units():
     item = task('nai-diffusion-5-curated')
     item['operation'] = 'inpaint'
-    item['parameters'].update(width=256, height=256, steps=29, image='fixture', mask='fixture',
+    image, mask = inpaint_images((256, 256))
+    item['parameters'].update(width=256, height=256, steps=29, image=image, mask=mask,
                               img2img={'strength': .2}, reference_image_multiple=['encoded-vibe'],
                               vibe_pending_indices=[0])
     quote = estimate(item)
@@ -337,11 +407,14 @@ def test_reference_quotes_keep_free_base_and_v5_uses_pixel_area():
 
 
 def test_img2img_and_inpaint_quotes_match_gate_billing_rules():
+    image, mask = inpaint_images()
     for operation in ('img2img', 'inpaint'):
         for model in ('nai-diffusion-4-5-full', 'nai-diffusion-5-full'):
             item = task(model)
             item['operation'] = operation
-            item['parameters'].update(image='fixture', width=512, height=512, steps=28, strength=.6)
+            item['parameters'].update(image=image, width=512, height=512, steps=28, strength=.6)
+            if operation == 'inpaint':
+                item['parameters'].update(mask=mask, img2img={'strength': 1})
             quote = estimate(item)
             assert (quote['units'], quote['unit_label']) == ((1, 'V5次数') if 'diffusion-5' in model else (0, '积分'))
             item['parameters']['steps'] = 29

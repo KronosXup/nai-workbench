@@ -57,6 +57,41 @@ def test_inpaint_default_strength_uses_native_infill_parameters():
     assert body['parameters']['params_version'] == 4
 
 
+@pytest.mark.parametrize(('img2img', 'expected'), [
+    ({'strength': .4, 'color_correct': False, 'future_option': 'preserved'},
+     {'strength': .4, 'color_correct': False, 'future_option': 'preserved'}),
+    ({'strength': 1, 'color_correct': False}, {'color_correct': False}),
+    ({'strength': 1, 'color_correct': True}, None),
+    ({'strength': 1, 'future_option': 'preserved'}, {'future_option': 'preserved'}),
+])
+def test_inpaint_preserves_explicit_options_without_changing_default_strength_semantics(img2img, expected):
+    job = fixture()
+    job['parameters']['img2img'] = img2img
+    _, body, _ = build_request(job)
+    if expected is None:
+        assert 'img2img' not in body['parameters']
+    else:
+        assert body['parameters']['img2img'] == expected
+
+
+def test_build_request_removes_local_vibe_file_metadata():
+    job = fixture()
+    job['parameters'].update(
+        reference_image_multiple=['encoded-vibe'],
+        vibe_source_files=[{'image': 'private-source', 'thumbnail': 'private-thumbnail'}],
+    )
+    _, body, _ = build_request(job)
+    assert body['parameters']['reference_image_multiple'] == ['encoded-vibe']
+    assert 'vibe_source_files' not in body['parameters']
+
+
+def test_inpaint_rejects_nonboolean_color_correct_option():
+    job = fixture()
+    job['parameters']['img2img']['color_correct'] = 'false'
+    with pytest.raises(AdapterError, match='颜色校正选项无效'):
+        build_request(job)
+
+
 @pytest.mark.parametrize('stream', [False, True])
 def test_inpaint_sends_aligned_mask_and_blends_final_and_preview(stream):
     job = fixture(stream=stream)

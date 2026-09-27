@@ -6,6 +6,10 @@ export type Operation =
   | "augment"
   | "encode_vibe";
 export type CharacterPrompt = {
+  // Local editor labels and identity; the adapter sends only prompts and centers.
+  ui_id?: string;
+  name?: string;
+  gender?: "female" | "male" | "other";
   enabled?: boolean;
   prompt: string;
   negative_prompt: string;

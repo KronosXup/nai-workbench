@@ -30,8 +30,12 @@ export function directorSourceIssue(source?: DirectorSource): string | undefined
   if (!source) return '请先选择要处理的图片。';
   if (typeof source.data !== 'string' || source.data.length > 32 * 1024 * 1024 || !/^[A-Za-z0-9+/=\s]+$/.test(source.data))
     return '图片数据无效，请重新选择图片。';
-  if (!Number.isInteger(source.width) || !Number.isInteger(source.height) || source.width < 1 || source.height < 1 || source.width * source.height > 3_145_728)
-    return '导演工具支持最多 314 万像素，请先缩小图片。';
+  if (!Number.isInteger(source.width) || !Number.isInteger(source.height) || source.width < 1 || source.height < 1)
+    return '图片尺寸无效，请重新选择图片。';
+  if (Math.min(source.width, source.height) < 64)
+    return '导演工具要求图片短边至少 64 像素。';
+  if (Math.max(source.width, source.height) > 8192 || source.width * source.height > 3_145_728)
+    return '导演工具要求长边不超过 8192 像素，且总像素不超过 3145728。';
 }
 
 // Separate tool data shares the existing per-user draft transaction and backup,
@@ -41,7 +45,9 @@ export function readDirectorDraft(value: unknown, model = 'nai-diffusion-4-5-ful
   const source = raw.source && typeof raw.source === 'object' ? raw.source : undefined;
   return {
     model: typeof raw.model === 'string' ? raw.model : model,
-    tool: directorTools.some(([id]) => id === raw.tool) ? raw.tool! : 'lineart',
+    // Keep old backups readable, but the current UI offers only standard Declutter.
+    tool: raw.tool === 'declutter-keep-bubbles' ? 'declutter'
+      : directorTools.some(([id]) => id === raw.tool) ? raw.tool! : 'lineart',
     prompt: typeof raw.prompt === 'string' ? raw.prompt : '',
     emotion: directorEmotions.some(([id]) => id === raw.emotion) ? raw.emotion! : 'neutral',
     defry: Number.isInteger(raw.defry) ? Math.max(0, Math.min(5, raw.defry!)) : 0,

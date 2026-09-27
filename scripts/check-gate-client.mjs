@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import {createRequire} from 'node:module';
 const require=createRequire(new URL('../client/package.json',import.meta.url));
 const ts=require('typescript');
-let seq=0, names=[], execute, executeSignals=[];
+let seq=0, names=[], execute, executeSignals=[], executeTasks=[];
 const saved={fetch:globalThis.fetch,setTimeout:globalThis.setTimeout,clearTimeout:globalThis.clearTimeout,now:Date.now};
 let now=1_000_000, timerSequence=0;
 const timers=new Map();
@@ -26,7 +26,7 @@ const final=()=>({type:'final',artifacts:[{data:'dGVzdA==',media_type:'image/png
 const limited=(code='gate_rpm',retry_after=2)=>({type:'error',code,retryable:true,retry_after,uncertain:false,message:'请等待后继续'});
 globalThis.fetch=async(url,options)=>{
   if(url.endsWith('/execute')) {
-    const task=JSON.parse(options.body);names.push(task.label);lastExecuteSignal=options.signal;executeSignals.push(options.signal);return execute(task);
+    const task=JSON.parse(options.body);names.push(task.label);lastExecuteSignal=options.signal;executeSignals.push(options.signal);executeTasks.push(structuredClone(task));return execute(task);
   }
   return Response.json({id:'test'});
 };
@@ -49,7 +49,7 @@ async function ack(client,index=0) {
 }
 function reset(handler=()=>events(final())) {
   assert.equal(timers.size,0,'previous client must not leave retry timers alive');
-  names=[];executeSignals=[];execute=handler;
+  names=[];executeSignals=[];executeTasks=[];execute=handler;
 }
 try {
   {
@@ -135,6 +135,26 @@ try {
     await ack(client,1);assert.deepEqual(names,['first','second','third']);client.close();
   }
   console.log('PASS ordered queue, local-save gating, deduplication and error pause without discarding unsent work');
+  for(const stream of [false,true]) {
+    reset();
+    const client=new GateApi('','A'),input=task(`local-vibe-${stream}`);
+    input.parameters={stream,vibe_source_images:['thumbnail-metadata'],
+      vibe_source_files:[{type:'image',data:'private-original-image',thumbnail:'private-thumbnail',importInfo:{mask:'private-mask'}}],
+      extension_metadata:{keep:'unknown fields stay'} };
+    const original=structuredClone(input);
+    await client.request('/batches',{request_id:`batch-${stream}`,items:[input]});await settle();
+    const sent=executeTasks[0];
+    assert.equal(sent.parameters.vibe_source_files,undefined);
+    assert.equal(sent.parameters.vibe_source_images,undefined);
+    assert.equal(sent.parameters.stream,stream,'stream and non-stream tasks share the sanitized execute path');
+    assert.deepEqual(sent.parameters.extension_metadata,original.parameters.extension_metadata);
+    assert.deepEqual(input,original,'transport preparation must not mutate the caller task');
+    const local=(await jobs(client))[0];
+    assert.deepEqual(local.parameters.vibe_source_files,original.parameters.vibe_source_files,'local gallery job retains source file metadata');
+    assert.deepEqual(local.parameters.vibe_source_images,original.parameters.vibe_source_images);
+    client.close();
+  }
+  console.log('PASS /execute omits local Vibe metadata for stream and non-stream while retaining local job data');
   reset(()=>events(final(),limited()));
   {
     const client=new GateApi('','A');await client.request('/batches',batch('first','second'));await settle();
@@ -220,7 +240,17 @@ try {
   reset(()=>events({type:'final',artifacts:[{media_type:'application/json',data:btoa(JSON.stringify({encoding:'ZW5jb2RlZA=='}))}]}));
   {
     const client=new GateApi('','owned-fixture');
-    assert.equal(await client.encodeVibe({...task('encode'),operation:'encode_vibe'}),'ZW5jb2RlZA==');
+    const encodeTask={...task('encode'),operation:'encode_vibe',parameters:{image:'required-source-image',
+      vibe_source_files:[{type:'image',data:'local-file-data',thumbnail:'local-thumb'}],vibe_source_images:['local-image-metadata'],
+      extension_metadata:{keep:true}}};
+    const original=structuredClone(encodeTask);
+    assert.equal(await client.encodeVibe(encodeTask),'ZW5jb2RlZA==');
+    const sent=executeTasks.at(-1);
+    assert.equal(sent.parameters.image,'required-source-image','Vibe encoding still sends its source image');
+    assert.equal(sent.parameters.vibe_source_files,undefined);
+    assert.equal(sent.parameters.vibe_source_images,undefined);
+    assert.deepEqual(sent.parameters.extension_metadata,{keep:true});
+    assert.deepEqual(encodeTask,original,'encoding transport must not mutate the original task');
     assert.equal((await jobs(client)).length,0);assert.equal(client.pending(),false);
     execute=()=>events({type:'preview'});await assert.rejects(()=>client.encodeVibe(task('broken')),/未确认/);
     assert.equal(names.length,2,'encoding failure must not retry');assert.equal(client.pending(),false);
