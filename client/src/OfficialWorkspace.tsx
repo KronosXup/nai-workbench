@@ -58,6 +58,8 @@ type Props = {
   quoteError?: QuoteError | null;
   configurationIssue?: ConfigurationIssue;
   blankCanvasSignal?: number;
+  showSource: boolean;
+  onSourceViewChange: (show: boolean) => void;
   quoteRequest: () => void;
   submit: () => void;
   onResetGenerationSettings: () => void;
@@ -76,6 +78,7 @@ type Props = {
   onMobileChange: (view: "edit" | "result") => void;
   onEnlarge: () => void;
   onReuse: () => void;
+  onVariations: () => void;
   onEditSelected: (row: LocalImage) => void;
   onPixelSelected: (row: LocalImage) => void;
   onUseAs: (operation: "img2img" | "vibe" | "character" | "inpaint" | "upscale" | "augment") => void;
@@ -125,21 +128,38 @@ export default function OfficialWorkspace(p: Props) {
   const [promptTools, setPromptTools] = useState(false);
   const [positionsOpen, setPositionsOpen] = useState(false);
   useEffect(() => {
-    if (!p.draft.model.startsWith('nai-diffusion-4') && !p.draft.model.startsWith('nai-diffusion-5')) setPositionsOpen(false);
-  }, [p.draft.model]);
+    if (!usesGenerationSettings(p.draft.operation) || (!p.draft.model.startsWith('nai-diffusion-4') && !p.draft.model.startsWith('nai-diffusion-5'))) setPositionsOpen(false);
+  }, [p.draft.model, p.draft.operation]);
   const mobile = p.mobile;
   const setMobile = p.onMobileChange;
   const [welcome, setWelcome] = useState(false);
-  const [showSource, setShowSource] = useState(Boolean(p.draft.parameters.image));
+  const sourceImage = p.draft.parameters.image;
+  const showSource = p.showSource;
+  const setShowSource = p.onSourceViewChange;
+  const displayedSource = useRef(sourceImage);
   const displayedSelectedId = useRef(p.selected?.id);
-  useEffect(() => { setShowSource(Boolean(p.draft.parameters.image)); }, [p.draft.parameters.image]);
+  useEffect(() => {
+    if (displayedSource.current === sourceImage) return;
+    displayedSource.current = sourceImage;
+    if (sourceImage) {
+      setPositionsOpen(false);
+      setWelcome(false);
+    }
+  }, [sourceImage]);
   useEffect(() => {
     if (displayedSelectedId.current !== p.selected?.id) {
       displayedSelectedId.current = p.selected?.id;
       setShowSource(false);
+      // New results and history selections take the stage back from positioning.
+      setPositionsOpen(false);
     }
   }, [p.selected?.id]);
-  const lastBlankSignal = useRef(p.blankCanvasSignal);
+  const hasPreview = Boolean(p.preview);
+  useEffect(() => {
+    // Switch on the first preview, not every frame, so the editor can be reopened.
+    if (hasPreview) setPositionsOpen(false);
+  }, [hasPreview]);
+  const lastBlankSignal = useRef(0);
   const params = p.draft.parameters;
   const composedPrompt = composePrompts(p.draft, p.draft.prompt, p.draft);
   const enabledCharacters = params.character_prompts.filter(character => character.enabled !== false);
@@ -198,8 +218,12 @@ export default function OfficialWorkspace(p: Props) {
   }, [p.selected?.id, p.preview]);
   useEffect(() => {
     if (p.blankCanvasSignal !== lastBlankSignal.current) {
-      lastBlankSignal.current = p.blankCanvasSignal;
-      setWelcome(true);
+      lastBlankSignal.current = p.blankCanvasSignal ?? 0;
+      if (p.blankCanvasSignal) {
+        setWelcome(true);
+        setShowSource(false);
+        setPositionsOpen(false);
+      }
     }
   }, [p.blankCanvasSignal]);
   const transparent = hasTransparentBackground(p.draft.prompt);
@@ -632,6 +656,10 @@ export default function OfficialWorkspace(p: Props) {
               {selected?.result.metadata.mock === true && !p.preview && <span className="nai-output-label">模拟输出 · 不是真实生图</span>}
             </div>
             <div className="nai-image-actions" aria-label={p.preview ? "等待最终图片后可操作" : "图片操作"}>
+              <button disabled={!canUseResult || p.busy || !selected || !['generate','img2img','inpaint'].includes(selected.job.operation) || Boolean(p.operations && !p.operations.includes('img2img'))}
+                title="使用当前图片生成 3 张变体" onClick={p.onVariations}>
+                <Grid2X2 size={16} />生成变体
+              </button>
               <button disabled={!canUseResult} onClick={p.onEnlarge} aria-label="放大查看">
                 <Expand size={17} />
               </button>
@@ -691,6 +719,9 @@ export default function OfficialWorkspace(p: Props) {
                 className={selected?.id === row.id ? "selected" : ""}
                 onClick={() => {
                   setWelcome(false);
+                  // Re-selecting the same image still means leaving the editor/source view.
+                  setShowSource(false);
+                  setPositionsOpen(false);
                   p.select(row);
                 }}
               >

@@ -121,6 +121,10 @@ export default function DirectorWorkspace(p: Props) {
   const task = useMemo(() => directorTask(state), [stateKey]);
   const issue = currentIssue(task, state, p.operations);
   const selectedResult = state.resultId ? p.rows.find((row) => row.id === state.resultId) : undefined;
+  useEffect(() => {
+    // A completed result must replace the mobile source preview too.
+    if (selectedResult) setMobileShowSource(false);
+  }, [selectedResult?.id]);
   const matchingJobs = p.jobs.filter((job) => directorMatchesJob(state, job));
   const pendingMatches = matchingJobs
     .filter((job) => ["queued", "waiting", "running", "unknown"].includes(job.status))

@@ -31,7 +31,15 @@ export function varietyScale(width: number, height: number) {
 export function generationParameters(model: string, input: Parameters): Parameters {
   const p = structuredClone(input);
   if (!model.endsWith('-3')) { delete p.sm; delete p.sm_dyn; delete p.dynamic_thresholding; delete p.legacy_v3_extend; }
-  if (model.startsWith('nai-diffusion-5')) { delete p.skip_cfg_above_sigma; delete p.prefer_brownian; }
+  if (model.startsWith('nai-diffusion-5')) {
+    delete p.skip_cfg_above_sigma;
+    // V5 hides this control, but the official Euler Ancestral request still
+    // enables Brownian noise and disables the legacy sampler behavior.
+    if (p.sampler === 'k_euler_ancestral') {
+      p.prefer_brownian = true;
+      p.deliberate_euler_ancestral_bug = false;
+    }
+  }
   // V5 has no schedule selector, but the API still needs the sampler default.
   if (model.startsWith('nai-diffusion-5') || !noiseSchedulesFor(model,p.sampler).includes(String(p.noise_schedule)))
     p.noise_schedule = defaultNoiseSchedule(p.sampler);

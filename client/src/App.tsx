@@ -47,6 +47,7 @@ import type {
   User,
 } from "./types";
 import ImageViewer from "./ImageViewer";
+import { variationTasks } from './variations';
 import MaskEditor from "./MaskEditor";
 import CanvasEditor from "./CanvasEditor";
 import { canvasProjectScope, type CanvasProject } from "./canvasProject";
@@ -303,6 +304,13 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string>();
   const selectedIdRef = useRef(selectedId);
   const [blankCanvas, setBlankCanvas] = useState(false);
+  const [blankCanvasRevision, setBlankCanvasRevision] = useState(0);
+  // Keep source/result choice across page changes, including explicit history choices.
+  const [drawingSourceVisible, setDrawingSourceVisible] = useState(false);
+  useEffect(() => {
+    setDrawingSourceVisible(Boolean(draft.parameters.image));
+    if (draft.parameters.image) setBlankCanvas(false);
+  }, [draft.parameters.image]);
   const [queuePaused, setQueuePaused] = useState(false);
   const [queueEncoding, setQueueEncoding] = useState(false);
   const [encodingPaused, setEncodingPaused] = useState(false);
@@ -372,6 +380,7 @@ export default function App() {
   const setParam = (key: string, value: unknown) =>
     setDraft((d) => ({ ...d, parameters: { ...d.parameters, [key]: value } }));
   function chooseResult(id?: string) {
+    setDrawingSourceVisible(false);
     selectedIdRef.current = id;
     importSequence.current++;
     setSelectedId(id);
@@ -640,6 +649,8 @@ export default function App() {
   const refresh = useCallback(async () => {
     if (!api || !user || syncBusy.current) return;
     syncBusy.current = true;
+    // Always save completed images; only auto-select if the user has not moved on.
+    const selection = importSequence.current;
     const seq = generation.current,
       owner = identity.current;
     let saving: { resultId: string; saved: boolean } | undefined;
@@ -680,7 +691,7 @@ export default function App() {
             if (job.operation === 'augment') {
               // A finished tool job must not replace the drawing selection or a
               // different source the user has since loaded into Director Tools.
-              if (directorMatchesJob(readDirectorDraft(draftRef.current.director, draftRef.current.model), existing.job) && (!newestDirectorSaved || (existing.job.completed_at ?? existing.job.created_at) >= (newestDirectorSaved.job.completed_at ?? newestDirectorSaved.job.created_at))) {
+              if (selection === importSequence.current && directorMatchesJob(readDirectorDraft(draftRef.current.director, draftRef.current.model), existing.job) && (!newestDirectorSaved || (existing.job.completed_at ?? existing.job.created_at) >= (newestDirectorSaved.job.completed_at ?? newestDirectorSaved.job.created_at))) {
                 newestDirectorSaved = existing;
                 const saved = existing;
                 setDraft(current => {
@@ -688,10 +699,11 @@ export default function App() {
                   return directorMatchesJob(tools, saved.job) ? { ...current, director: { ...tools, resultId: saved.id } } : current;
                 });
               }
-            } else if (pageRef.current === 'draw' && (!newestSaved || (existing.job.completed_at ?? existing.job.created_at) >= (newestSaved.job.completed_at ?? newestSaved.job.created_at))) {
+            } else if (selection === importSequence.current && pageRef.current === 'draw' && (!newestSaved || (existing.job.completed_at ?? existing.job.created_at) >= (newestSaved.job.completed_at ?? newestSaved.job.created_at))) {
               newestSaved = existing;
               selectedIdRef.current = existing.id;
               setSelectedId(existing.id);
+              setDrawingSourceVisible(false);
               setBlankCanvas(false);
             }
           }
@@ -1251,6 +1263,43 @@ export default function App() {
       if (current()) fail(e);
     }
   }
+  async function generateVariations(row: LocalImage) {
+    if (!api || submitting.current) return;
+    const seq = generation.current, owner = identity.current, originPage = pageRef.current;
+    const selection = selectedIdRef.current;
+    const current = () => seq === generation.current && owner === identity.current &&
+      pageRef.current === originPage && selectedIdRef.current === selection;
+    submitting.current = true;
+    setBusy(true);
+    try {
+      const image = await readImage(new File([row.blob], row.result.filename, {type: row.result.media_type}));
+      if (!current()) return;
+      const tasks = variationTasks(row, image, draftRef.current.parameters.stream === true);
+      tasks.forEach(validateTask);
+      api.checkCapacity(tasks.length);
+      const price = await api.request<{units: number; unit_label: string}>("/quote", tasks[0]);
+      if (!current()) return;
+      if (!Number.isFinite(price.units) || price.units < 0) throw new Error('暂时无法取得变体报价');
+      const total = price.units * tasks.length;
+      const cost = price.unit_label.includes('V5') ? `${total} 次 V5 额度` : `${total} 积分`;
+      const accepted = await askConfirmation({
+        title: '生成 3 张变体？',
+        message: `沿用这张图片的提示词和参数，变化强度 0.8、噪声 0.1。逐张生成，预计共 ${cost}。`,
+        confirmLabel: '生成变体',
+      });
+      if (!accepted || !current()) return;
+      // submit owns the same queue lock; release preparation before handing off.
+      submitting.current = false;
+      await submit(tasks);
+    } catch (error) {
+      if (current()) fail(error);
+    } finally {
+      if (seq === generation.current && owner === identity.current) {
+        submitting.current = false;
+        setBusy(false);
+      }
+    }
+  }
   async function reuse(row: LocalImage) {
     if (row.job.operation === 'augment') {
       patchDirector(directorFromJob(row.job, row.id));
@@ -1472,7 +1521,7 @@ export default function App() {
       {user && <WorkspaceHeader page={page} onPage={setPage} user={user} userRefreshIssue={userRefreshIssue} pending={queuePending}
         onQueue={() => setShowQueue(true)} onLibrary={() => setShowLibrary("all")}
         onNewCanvas={openBlankDrawingCanvas}
-        onBlankCanvas={() => { setBlankCanvas(true); setPage("draw"); setMobileTab("result"); }} />}
+        onBlankCanvas={() => { importSequence.current++; setDrawingSourceVisible(false); setBlankCanvasRevision(value => value + 1); setBlankCanvas(true); setPage("draw"); setMobileTab("result"); }} />}
       {user && (queuePending > 0 || queuePaused || encodingPaused) && <div className="queue-status-banner" role="status">
         <div className="queue-status-copy"><span>{queueMessage}</span><small><GateQueueStatus monitor={serverQueue}/></small></div>
         <button onClick={() => setShowQueue(true)}>查看队列</button>
@@ -1545,6 +1594,9 @@ export default function App() {
               quote={quote}
               quoteError={quoteError}
               configurationIssue={configurationIssue}
+              blankCanvasSignal={blankCanvas ? blankCanvasRevision : 0}
+              showSource={drawingSourceVisible}
+              onSourceViewChange={setDrawingSourceVisible}
               onResetGenerationSettings={() => void resetGenerationSettings()}
               quoteRequest={() => void requestQuote()}
               submit={() => void submitMain()}
@@ -1564,6 +1616,7 @@ export default function App() {
               onMobileChange={setMobileTab}
               onEnlarge={() => { if (drawingSelected) { chooseResult(drawingSelected.id); setLightbox(true); } }}
               onReuse={() => drawingSelected && reuse(drawingSelected)}
+              onVariations={() => drawingSelected && void generateVariations(drawingSelected)}
               onEditSelected={(row) => void openResultCanvas(row)}
               onPixelSelected={(row) => void openResultPixelSnap(row)}
               onUseAs={(operation) => void useAs(operation, drawingSelected)}
@@ -1580,7 +1633,7 @@ export default function App() {
             jobs={jobs.filter(job => job.operation === 'augment')}
             onSubmit={task => void submit([task])}
             onUpload={file => void uploadDirectorImage(file)}
-            onSelectResult={row => patchDirector(directorFromJob(row.job, row.id))}
+            onSelectResult={row => { importSequence.current++; patchDirector(directorFromJob(row.job, row.id)); }}
             onUseResult={row => void useAs('img2img', row)}
             onContinue={row => void useAs('augment', row)}
             onPixel={source => setPixelInput({image:source.data,width:source.width,height:source.height,target:'director'})}

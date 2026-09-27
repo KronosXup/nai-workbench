@@ -1,0 +1,45 @@
+name: nai-stack
+
+services:
+  gate:
+    build: ./gate
+    image: ${GATE_IMAGE:-nai-gate:4b0ff69}
+    restart: unless-stopped
+    environment:
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD}
+      NAI_TOKENS: ${NAI_TOKENS:?Set NAI_TOKENS}
+      ADMIN_COOKIE_SECURE: ${ADMIN_COOKIE_SECURE:-0}
+      ALLOW_IMG2IMG: ${ALLOW_IMG2IMG:-1}
+      KEY_INACTIVITY_DELETE_DAYS: ${KEY_INACTIVITY_DELETE_DAYS:-0}
+      GLOBAL_CONCURRENCY: ${GLOBAL_CONCURRENCY:-1}
+      KEY_CONCURRENCY: ${KEY_CONCURRENCY:-1}
+      IMAGE_MIN_INTERVAL: ${IMAGE_MIN_INTERVAL:-15}
+      KEY_IMAGE_MIN_INTERVAL: ${KEY_IMAGE_MIN_INTERVAL:-15}
+      GLOBAL_MONTHLY_ANLAS: ${GLOBAL_MONTHLY_ANLAS:-10000}
+      GLOBAL_DAILY_V5: ${GLOBAL_DAILY_V5:-150}
+      DATA_DIR: /app/data
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:18000:8000"
+    volumes:
+      - ./gate-data:/app/data
+
+  workbench:
+    image: ${WORKBENCH_IMAGE:-ghcr.io/kronosxup/nai-workbench:v0.1.0-beta.5}
+    restart: unless-stopped
+    depends_on:
+      - gate
+    environment:
+      WORKBENCH_GATE_URL: http://gate:8000
+    ports:
+      - "127.0.0.1:8787:8787"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 768m
+    cpus: 2
+    pids_limit: 128

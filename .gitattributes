@@ -2,3 +2,4 @@
 client/public/tokenizers/*.json linguist-vendored=true
 client/public/fonts/** linguist-vendored=true
 third_party_licenses/** linguist-vendored=true
+*.sh text eol=lf

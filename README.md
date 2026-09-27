@@ -11,26 +11,19 @@
 - 五组提示词批量生成，可共用或分别设置画师、质量和负面提示词。
 - 本地画布、图片参数导入、提示词计数、图库与备份。
 
-## 快速部署
+## 安装
 
-从零安装 Gate 和工作台、配置 HTTPS、创建 Key、备份及更新，见[完整部署教程](docs/DEPLOYMENT-GUIDE.md)。已有 Gate 可使用下面的快速部署。
-
-需要 Docker Compose v2，以及从工作台容器可访问的 Gate 服务。默认使用 GitHub Container Registry 的预构建镜像；首次部署不需要本地编译前端。
-
-默认 `beta` 镜像由预发布版本标签生成，也可由维护者从 `main` 手动发布；手动发布同时提供 `sha-...` 标签。稳定版标签还会更新 `latest`。
+在装有 Docker Compose v2 和 Git 的 Linux 服务器 / NAS 上运行：
 
 ```sh
 git clone https://github.com/KronosXup/nai-workbench.git
 cd nai-workbench
-cp .env.gate.example .env
-# 编辑 .env，将 WORKBENCH_GATE_URL 设为容器可访问的 Gate 地址
-docker compose --env-file .env -f compose.gate.yaml pull
-docker compose --env-file .env -f compose.gate.yaml up -d
+bash deploy.sh
 ```
 
-打开 `http://127.0.0.1:8787`，输入 Gate Key。工作台默认只绑定本机地址。更新时在项目目录运行上面的 `pull` 和 `up -d` 两条命令。若 Gate 在宿主机，可将地址设为 `http://host.docker.internal:<Gate端口>`；若 Gate 在另一个 Docker 容器网络，见[部署说明](docs/GATE-FRONTEND.md)。
+按提示选择 **全新安装 Gate + 工作台**，或 **连接已有 Gate**。不用手动编辑配置或编译前端。如何打开页面和配置公网网址，见[安装教程](docs/DEPLOYMENT-GUIDE.md)。
 
-公网使用请配置 HTTPS 反向代理。网络、端口和容器设置见[部署说明](docs/GATE-FRONTEND.md)。
+以后更新工作台，在同一目录运行 `bash deploy.sh update`。备份和 Gate 更新见[维护说明](docs/DEPLOYMENT-MAINTENANCE.md)。
 
 ## 使用说明
 

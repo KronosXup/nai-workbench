@@ -414,6 +414,8 @@
 .mask-editor.is-saving .mask-editor-settings { pointer-events: none; }
 .mask-editor.is-saving .mask-editor-save-actions .mask-editor-save { cursor: progress; }
 
+.mask-editor .mask-editor-zoom-tools { display: flex; align-items: center; gap: inherit; }
+
 @media (max-width: 700px) {
   .mask-editor .mask-editor-topbar {
     inset: 10px 10px auto;
@@ -575,10 +577,19 @@
     width: auto;
     max-width: none;
     transform: none;
-    flex-wrap: nowrap;
-    justify-content: flex-start;
-    overflow-x: auto;
-    scrollbar-width: thin;
+    flex-wrap: wrap;
+    justify-content: center;
+    overflow: visible;
   }
   .mask-editor .mask-editor-toolbar > * { flex: none; }
+  .mask-editor .mask-editor-toolbar .mask-editor-zoom-tools { flex: 1 0 100%; justify-content: center; }
+  .mask-editor .mask-editor-stage { padding-bottom: 122px; }
+  .mask-editor .mask-editor-hint { bottom: 102px; }
+}
+
+/* Keep every tool visible on phones. The fit calculation reads this padding. */
+@media (max-width: 420px) {
+  .mask-editor .mask-editor-toolbar { gap: 4px; }
+  .mask-editor .mask-editor-toolbar button { width: 36px; min-width: 36px; min-height: 36px; }
+  .mask-editor .mask-editor-tool-divider { display: none; }
 }

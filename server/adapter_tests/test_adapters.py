@@ -47,6 +47,60 @@ def test_generation_mapping_does_not_mutate_saved_snapshot():
     assert json.dumps(source, sort_keys=True) == before
 
 
+@pytest.mark.parametrize("stream", [False, True])
+def test_img2img_noise_seed_and_color_defaults(stream):
+    source = job(image=base64.b64encode(png()).decode(), strength=.8, noise=.1,
+                 stream=stream, color_correct=True, sm=True, sm_dyn=True)
+    source["operation"] = "img2img"
+    source["model"] = "nai-diffusion-5-curated"
+    before = json.dumps(source, sort_keys=True)
+    path, body, actual_stream = build_request(source)
+    assert actual_stream is stream
+    assert path == ("/ai/generate-image-stream" if stream else "/ai/generate-image")
+    params = body["parameters"]
+    assert params["extra_noise_seed"] == 8
+    assert params["color_correct"] is False
+    assert params["sm"] is False and params["sm_dyn"] is False
+    assert json.dumps(source, sort_keys=True) == before
+    source["parameters"]["extra_noise_seed"] = 123
+    assert build_request(source)[1]["parameters"]["extra_noise_seed"] == 123
+
+
+@pytest.mark.parametrize("model", ["nai-diffusion-4-5-full", "nai-diffusion-5-curated", "nai-diffusion-5-full"])
+@pytest.mark.parametrize("coords", [False, True])
+def test_character_positioning_matches_official_caption_flags(model, coords):
+    source = job(use_coords=coords, character_prompts=[
+        {"prompt": "woman, red jacket", "negative_prompt": "hat", "x": .75, "y": .274},
+        {"prompt": "", "negative_prompt": "ignored", "x": .5, "y": .5},
+        {"prompt": "disabled", "enabled": False, "x": .5, "y": .5},
+        {"prompt": "man, blue jacket", "negative_prompt": "glasses", "x": .23, "y": .774},
+    ])
+    source["model"] = model
+    params = build_request(source)[1]["parameters"]
+    positive, negative = params["v4_prompt"], params["v4_negative_prompt"]
+    assert positive["use_coords"] is coords
+    assert positive["use_order"] is True
+    assert negative["use_coords"] is False
+    assert negative["use_order"] is False
+    assert [c["centers"] for c in positive["caption"]["char_captions"]] == [
+        [{"x": .75, "y": .274}], [{"x": .23, "y": .774}],
+    ]
+    assert [c["centers"] for c in negative["caption"]["char_captions"]] == [
+        c["centers"] for c in positive["caption"]["char_captions"]
+    ]
+    assert [c["char_caption"] for c in negative["caption"]["char_captions"]] == ["hat", "glasses"]
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_v5_euler_ancestral_uses_current_official_sampler_behavior(stream):
+    source = job(stream=stream, prefer_brownian=False, deliberate_euler_ancestral_bug=True)
+    source["model"] = "nai-diffusion-5-curated"
+    params = build_request(source)[1]["parameters"]
+    assert params["prefer_brownian"] is True
+    assert params["deliberate_euler_ancestral_bug"] is False
+    assert source["parameters"]["prefer_brownian"] is False
+
+
 def test_zip_multiple_results_are_all_kept_without_extracting_paths():
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w") as archive:

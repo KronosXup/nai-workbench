@@ -255,6 +255,13 @@ def build_request(job: dict) -> tuple[str, dict, bool]:
         return "/ai/encode-vibe", {"image": params["image"], "model": model, "informationExtracted": extracted}, False
     if operation not in {"generate", "img2img", "inpaint"}:
         raise AdapterError("unsupported_operation", "不支持的生成操作")
+    if operation == "img2img":
+        # Match the official image-conditioning defaults. Its noise seed is
+        # distinct from the diffusion seed; retain an explicitly imported one.
+        params.setdefault("extra_noise_seed", params.get("seed", 0) - 1)
+        params["color_correct"] = False
+        params["sm"] = False
+        params["sm_dyn"] = False
     if operation == "inpaint":
         if not params.get("mask"):
             raise AdapterError("mask_required", "局部重绘需要蒙版")
@@ -303,6 +310,11 @@ def build_request(job: dict) -> tuple[str, dict, bool]:
     params["negative_prompt"] = negative
     params["uc"] = negative
     params.setdefault("noise_schedule", "karras")
+    if model.startswith("nai-diffusion-5") and params.get("sampler") == "k_euler_ancestral":
+        # V5's official client sends these even though it has no Brownian toggle.
+        # Omitting them selects different upstream defaults for the same seed.
+        params["prefer_brownian"] = True
+        params["deliberate_euler_ancestral_bug"] = False
     if operation == "inpaint":
         params["params_version"] = 4
     else:
@@ -311,7 +323,7 @@ def build_request(job: dict) -> tuple[str, dict, bool]:
         coords = bool(params.get("use_coords", False))
         caps, uc_caps = [], []
         for character in characters:
-            if character.get("enabled", True) is False:
+            if character.get("enabled", True) is False or not character.get("prompt", ""):
                 continue
             x, y = character.get("x", 0.5), character.get("y", 0.5)
             if not all(isinstance(v, (int, float)) and math.isfinite(v) and 0 <= v <= 1 for v in (x, y)):
@@ -320,7 +332,9 @@ def build_request(job: dict) -> tuple[str, dict, bool]:
             caps.append({"char_caption": character.get("prompt", ""), "centers": centers})
             uc_caps.append({"char_caption": character.get("negative_prompt", ""), "centers": centers})
         params["v4_prompt"] = {"caption": {"base_caption": prompt, "char_captions": caps}, "use_coords": coords, "use_order": True}
-        params["v4_negative_prompt"] = {"caption": {"base_caption": negative, "char_captions": uc_caps}, "use_coords": coords, "use_order": False}
+        # The official client applies custom positioning to the positive caption
+        # only; copying it to UC changes the conditioning used for generation.
+        params["v4_negative_prompt"] = {"caption": {"base_caption": negative, "char_captions": uc_caps}, "use_coords": False, "use_order": False}
     body = {"input": prompt, "model": model, "action": {"generate": "generate", "img2img": "img2img", "inpaint": "infill"}[operation], "parameters": params}
     return "/ai/generate-image-stream" if stream else "/ai/generate-image", body, stream
 

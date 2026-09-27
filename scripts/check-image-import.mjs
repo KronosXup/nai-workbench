@@ -39,6 +39,19 @@ for(const compressed of [true,false]) {
 const draft={prompt:'old',negative:'old negative',artist:'artist',quality:'quality',model:'nai-diffusion-4-5-full',parameters:{seed:9,character_prompts:[],image:'source'}};
 const metadata=m.parseMetadata({Comment:comment});
 const selected=m.applyMetadata(draft,metadata,{prompt:true,negative:false,characters:true,settings:false,seed:false,append:false,cleanBrackets:false});
+// Re-importing a result in replace mode must not grow the character list or
+// repeat already composed quality tags. Append remains an explicit choice.
+{
+  const options={prompt:true,negative:true,characters:true,settings:true,seed:true,append:false,cleanBrackets:false};
+  const existing={...draft,qualityPreset:'standard',parameters:{...draft.parameters,character_prompts:[{prompt:'old character',negative_prompt:'',x:.5,y:.5}]}};
+  const once=m.applyMetadata(existing,metadata,options);
+  const twice=m.applyMetadata(once,metadata,options);
+  assert.deepEqual(twice,once);
+  assert.equal(twice.parameters.character_prompts.length,1);
+  assert.equal(twice.qualityPreset,'none');
+  const appended=m.applyMetadata(existing,metadata,{...options,append:true});
+  assert.equal(appended.parameters.character_prompts.length,2);
+}
 // Source-only official metadata must not switch a Curated image back to Full.
 for (const variant of ['Full','Curated']) {
   const modelMetadata=m.parseMetadata({Source:`NovelAI Diffusion V5 ${variant}`,Description:'fixture'});

@@ -31,3 +31,5 @@ jobs:
         run: npm ci --prefix client
       - name: Build and run offline checks
         run: python scripts/check-release.py
+      - name: Check deployment wizard (mock Docker and Git)
+        run: python scripts/check-deploy.py

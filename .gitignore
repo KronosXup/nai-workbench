@@ -10,4 +10,10 @@ __pycache__/
 .pytest_cache/
 *.pyc
 artifacts/
+deploy/stack/gate/
+deploy/stack/gate-data/
+deploy/stack/caddy-data/
+deploy/stack/caddy-config/
+deploy/stack/backups/
+deploy/stack/Caddyfile
 *.log

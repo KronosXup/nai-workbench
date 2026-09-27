@@ -1,0 +1,5 @@
+draw.example.com {
+    reverse_proxy workbench:8787 {
+        flush_interval -1
+    }
+}

@@ -27,10 +27,20 @@ function actualModule(name) {
 const {configurationIssueFor, effectiveModelForOperation, usesGenerationSettings} = actualModule('taskValidation.ts');
 const {ApiError} = actualModule('api.ts');
 const {generationParameters, defaultNoiseSchedule, modelGenerationDefaults} = actualModule('modelSettings.ts');
+// The hidden V5 sampler flags must survive task preparation, including replay
+// of an older draft. Test the outgoing copy without changing that draft.
+{
+  const input = {sampler:'k_euler_ancestral', prefer_brownian:false, deliberate_euler_ancestral_bug:true};
+  const sent = generationParameters('nai-diffusion-5-curated', input);
+  assert.equal(sent.prefer_brownian, true);
+  assert.equal(sent.deliberate_euler_ancestral_bug, false);
+  assert.equal(input.prefer_brownian, false);
+}
 const {composePrompts} = actualModule('promptPresets.ts');
 const {newDraft, defaultParameters, joinPrompt, uuid} = actualModule('types.ts');
 const {resolveVibeReference, makeVibeFile, VibeReferenceError, encodingFor} = actualModule('vibeFiles.ts');
 const {readDirectorDraft, directorFromJob, directorTask, directorMatchesJob, directorSourceIssue, migrateDirectorDraft} = actualModule('director.ts');
+const {variationTasks} = actualModule('variations.ts');
 
 function actualFunction(name, scope) {
   scope = {effectiveModelForOperation, ...scope};
@@ -128,6 +138,7 @@ function harness() {
     setEncodingWaitReason: () => {},
     setQueueNow: () => {},
     setBlankCanvas: () => {},
+    setDrawingSourceVisible: () => {},
       setSelectedId: id => { state.selectedId = id; },
       chooseResult: id => { scope.selectedIdRef.current = id; scope.importSequence.current++; state.selectedId = id; },
     setRows: rows => { state.rows = rows; },
@@ -488,6 +499,32 @@ const checks = [
       assert.deepEqual(h.state.errors,[]);
     }
   }],
+  ['Saving a late result never replaces a newer manual selection, but still saves and acknowledges it', async () => {
+    for (const director of [false, true]) {
+      const h = harness();
+      if (director) {
+        const tools = readDirectorDraft({tool:'lineart',source:{data:'YWJj',width:64,height:64,name:'test.png'}});
+        Object.assign(h.job,directorTask(tools));
+        h.state.draft = {...newDraft(), director:tools};
+      }
+      let release;
+      let started;
+      const downloading = new Promise(resolve => { started = resolve; });
+      h.scope.api.content = async () => { started(); return new Promise(resolve => { release = resolve; }); };
+      const work = h.fn('refresh')();
+      await downloading;
+      h.scope.importSequence.current++;
+      h.state.selectedId = 'manually-selected';
+      if (director) h.state.draft.director.resultId = 'manual-director-result';
+      release(new Blob(['fixture']));
+      await work;
+      assert.equal(h.state.selectedId, 'manually-selected');
+      if (director) assert.equal(h.state.draft.director.resultId, 'manual-director-result');
+      assert.equal(h.state.rows.length,1);
+      assert.equal(h.result.acknowledged,true);
+      assert.deepEqual(h.state.errors,[]);
+    }
+  }],
   ['A drawing completion while using another page keeps the previous drawing selection', async () => {
     const h=harness(); h.scope.pageRef.current='director'; h.state.selectedId='keep-selection';
     await h.fn('refresh')();
@@ -805,6 +842,86 @@ const checks = [
     assert.equal(h.state.draft.parameters.vibe_encodings['backup-key'],'backup-encoding');
     assert.deepEqual(h.state.draft.parameters.character_reference_images,['backup-character']);
     assert.equal(h.state.draft.director.source.data,'backup-director-source');
+  }],
+  ['Variation tasks inherit the selected result context and leave its source untouched', async () => {
+    const row={id:'variation-source',blob:new Blob(['finished pixels']),result:{id:'variation-result',filename:'finished.png',media_type:'image/png'},
+      job:{id:'variation-job',operation:'inpaint',model:'nai-diffusion-4-5-curated-inpainting',prompt:'original job prompt',negative_prompt:'original job negative',parameters:{
+        ...structuredClone(defaultParameters),image:'upstream image',mask:'upstream mask',img2img:{strength:.4,color_correct:false},seed:991,
+        character_prompts:[{ui_id:'old',name:'Old',prompt:'old character',negative_prompt:'old negative',x:.5,y:.5}],
+        use_coords:true,reference_image_multiple:['vibe encoding'],reference_strength_multiple:[.35],reference_information_extracted_multiple:[.7],
+        character_reference_images:['precise ref'],character_reference_descriptions:['character&style'],character_reference_strengths:[.8],character_reference_fidelities:[.9],
+      }}};
+    const image={name:'finished.png',data:'actual-finished-pixels',width:896,height:640,metadata:{
+      model:'nai-diffusion-4-5-full',prompt:'metadata prompt without draft presets',negative:'metadata negative',
+      characters:[{ui_id:'meta-character',name:'Metadata Character',prompt:'metadata character',negative_prompt:'metadata UC',x:.23,y:.81,enabled:true}],
+      settings:{steps:37,scale:6.25,seed:1234,use_coords:true},
+    }};
+    const originalRow=structuredClone(row),originalImage=structuredClone(image);
+    const tasks=variationTasks(row,image,true);
+    assert.equal(tasks.length,3);
+    assert.ok(tasks.every(task=>task.operation==='img2img'&&task.model==='nai-diffusion-4-5-curated'));
+    assert.ok(tasks.every(task=>task.parameters.n_samples===1&&task.parameters.strength===.8&&task.parameters.noise===.1));
+    assert.ok(tasks.every(task=>task.parameters.image==='actual-finished-pixels'&&task.parameters.width===896&&task.parameters.height===640));
+    assert.ok(tasks.every(task=>task.prompt==='metadata prompt without draft presets'&&task.negative_prompt==='metadata negative'));
+    assert.ok(tasks.every(task=>task.parameters.steps===37&&task.parameters.scale===6.25));
+    for(const task of tasks){
+      assert.deepEqual(task.parameters.character_prompts,image.metadata.characters,'the finished PNG metadata supplies role prompts and their coordinates');
+      assert.deepEqual(task.parameters.character_prompts[0] && {x:task.parameters.character_prompts[0].x,y:task.parameters.character_prompts[0].y},{x:.23,y:.81});
+      assert.equal(task.parameters.use_coords,true);
+      for(const key of ['mask','img2img','upscale','canvas_project_id','vibe_pending_indices'])
+        assert.equal(Object.hasOwn(task.parameters,key),false,`${key} from the source job must not leak into variations`);
+    }
+    assert.equal(new Set(tasks.map(task=>task.parameters.seed)).size,3,'each variation gets a distinct seed');
+    assert.notDeepEqual(tasks[0].parameters.seed,991,'the source request seed is replaced');
+    assert.deepEqual(row,originalRow,'task construction does not mutate the selected gallery row');
+    assert.deepEqual(image,originalImage,'task construction does not mutate the decoded finished image or metadata');
+  }],
+  ['Generate variations quotes before one confirmed submission and preserves the current draft', async () => {
+    const row={id:'selected-variation',blob:new Blob(['pixels']),result:{filename:'selected.png',media_type:'image/png'},
+      job:{operation:'generate',model:'nai-diffusion-4-5-curated',prompt:'image prompt',negative_prompt:'image UC',parameters:{...structuredClone(defaultParameters),seed:88}}};
+    function variationHarness() {
+      const state={generation:3,identity:'owner-a',page:'draw',selectedId:row.id,draft:{...newDraft(),prompt:'unsaved draft with preset',parameters:{...structuredClone(defaultParameters),stream:true}},
+        quoteCalls:[],submitted:[],failures:[],confirmations:[],busy:false,accept:true,quoteError:null};
+      const scope={api:{checkCapacity:count=>{state.capacity=count;},request:async(route,task)=>{
+        state.quoteCalls.push({route,task}); if(state.quoteError)throw state.quoteError;
+        if(state.quotePending)return state.quotePending;
+        return {units:7,unit_label:'积分'};
+      }},submitting:{current:false},setBusy:value=>{state.busy=value;},generation:{get current(){return state.generation;}},
+        identity:{get current(){return state.identity;}},pageRef:{get current(){return state.page;}},selectedIdRef:{get current(){return state.selectedId;}},
+        draftRef:{get current(){return state.draft;}},readImage:async file=>({name:file.name,data:'finished-pixels',width:512,height:768,metadata:{prompt:'image prompt without unsaved preset',negative:'image UC',characters:[{prompt:'hero',negative_prompt:'',x:.1,y:.9}]}}),
+        variationTasks,validateTask:task=>{assert.equal(task.operation,'img2img');assert.equal(task.parameters.n_samples,1);},
+        askConfirmation:request=>{state.confirmations.push(request);return state.confirmPending ?? state.accept;},
+        submit:async tasks=>{state.submitted.push(tasks);},fail:error=>{state.failures.push(error);}};
+      return {state,scope,lock:scope.submitting,run:()=>actualFunction('generateVariations',scope)(row)};
+    }
+    {
+      const {state,run,lock}=variationHarness();const before=state.draft;
+      await run();
+      assert.equal(state.capacity,3);
+      assert.equal(state.quoteCalls.length,1);assert.equal(state.quoteCalls[0].route,'/quote');
+      assert.equal(state.confirmations.length,1);assert.match(state.confirmations[0].message,/预计共 21 积分/);
+      assert.equal(state.submitted.length,1);assert.equal(state.submitted[0].length,3,'one call hands the whole set to the serial Gate queue');
+      assert.ok(state.submitted[0].every(task=>task.prompt==='image prompt without unsaved preset'),'the drawing draft preset is not layered onto the source request');
+      assert.equal(state.draft,before,'variation generation must not replace or patch the unsaved drawing draft');
+      assert.deepEqual(state.failures,[]);assert.equal(state.busy,false);assert.equal(lock.current,false,'the preparation lock is released after submit handoff');
+    }
+    {
+      const h=variationHarness();h.state.quoteError=new Error('quote unavailable');await h.run();
+      assert.equal(h.state.submitted.length,0,'a failed quote cannot submit');assert.equal(h.state.failures.length,1);
+      const cancelled=variationHarness();cancelled.state.accept=false;await cancelled.run();
+      assert.equal(cancelled.state.submitted.length,0,'confirmation cancellation cannot submit');
+    }
+    for(const point of ['quote','confirm']) for(const change of ['identity','selection']) {
+      const h=variationHarness();let resume,started;
+      const began=new Promise(resolve=>{started=resolve;});
+      if(point==='quote')h.state.quotePending=new Promise(resolve=>{resume=()=>resolve({units:7,unit_label:'积分'});started();});
+      else h.scope.askConfirmation=()=>{started();return new Promise(resolve=>{resume=()=>resolve(true);});};
+      const work=h.run();await began;
+      if(change==='identity'){h.state.generation++;h.state.identity='owner-b';}
+      else h.state.selectedId='different-image';
+      resume();await work;
+      assert.equal(h.state.submitted.length,0,`${change} changed during ${point} must invalidate the pending variations`);
+    }
   }],
 ];
 

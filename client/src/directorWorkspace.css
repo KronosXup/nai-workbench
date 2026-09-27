@@ -139,12 +139,13 @@
   .director-action-row { flex-wrap: wrap; padding: 4px; gap: 5px; }
   .director-workspace .director-submit { flex: 1; min-width: 0; gap: 5px; padding-inline: 6px; font-size: 13px; }
   .director-cost-chip { padding-inline: 5px; max-width: 58%; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
-  .director-workspace .director-mobile-history-toggle { display: flex; width: 29px; padding: 4px; background: transparent; }
+  .director-workspace .director-mobile-history-toggle { display: flex; width: 40px; min-height: 40px; padding: 4px; background: transparent; }
   .director-history.is-collapsed { display: none; }
-  .director-history.is-open { position: fixed; z-index: 90; top: 54px; right: 0; bottom: 0; width: min(230px, 80vw); margin: 0; box-shadow: -12px 0 35px #0006; }
+  /* This page drawer stays below global dialogs and the task queue. */
+  .director-history.is-open { position: fixed; z-index: 60; top: 54px; right: 0; bottom: 0; width: min(230px, 80vw); margin: 0; box-shadow: -12px 0 35px #0006; }
   .director-history-header { height: 48px; }
   .director-history-thumb { height: 130px; }
-  .director-history-scrim { display: block !important; position: fixed; z-index: 89; inset: 54px 0 0; width: 100%; height: calc(100% - 54px); border-radius: 0; background: #08091688 !important; }
+  .director-history-scrim { display: block !important; position: fixed; z-index: 59; inset: 54px 0 0; width: 100%; height: calc(100% - 54px); border-radius: 0; background: #08091688 !important; }
 }
 @media (prefers-reduced-motion: reduce) { .director-spin { animation-duration: 2.4s; } }
 

@@ -947,9 +947,11 @@ export default function MaskEditor({
         <button type="button" aria-label="清空当前图层" title="清空当前图层" disabled={!ready || saving} onClick={resetActiveLayer}><RotateCcw size={18} /></button>
         <button type="button" aria-label="撤销" title="撤销（Ctrl/⌘ Z）" disabled={!undo.current.length || !ready || saving} onClick={() => history(true)}><Undo2 size={18} /></button>
         <button type="button" aria-label="重做" title="重做（Ctrl/⌘ Shift Z）" disabled={!redo.current.length || !ready || saving} onClick={() => history(false)}><Redo2 size={18} /></button>
-        <button type="button" aria-label="缩小" title="缩小" disabled={saving} onClick={() => zoomAt(1 / 1.25)}><ZoomOut size={18} /></button>
-        <button type="button" aria-label="适应画布" title={`适应画布 · ${Math.round(zoom * 100)}%`} disabled={saving} onClick={() => { setZoom(1); setPanOffset({ x: 0, y: 0 }); }}>适应</button>
-        <button type="button" aria-label="放大" title="放大" disabled={saving} onClick={() => zoomAt(1.25)}><ZoomIn size={18} /></button>
+        <div className="mask-editor-zoom-tools" role="group" aria-label="画布缩放">
+          <button type="button" aria-label="缩小" title="缩小" disabled={saving} onClick={() => zoomAt(1 / 1.25)}><ZoomOut size={18} /></button>
+          <button type="button" aria-label="适应画布" title={`适应画布 · ${Math.round(zoom * 100)}%`} disabled={saving} onClick={() => { setZoom(1); setPanOffset({ x: 0, y: 0 }); }}>适应</button>
+          <button type="button" aria-label="放大" title="放大" disabled={saving} onClick={() => zoomAt(1.25)}><ZoomIn size={18} /></button>
+        </div>
       </div>
       <canvas ref={maskCanvas} className="mask-editor-mask-data" aria-hidden="true" />
     </section>
