@@ -231,7 +231,7 @@ export default function OfficialWorkspace(p: Props) {
   const canUseResult = Boolean(selected) && !p.preview && !showSource;
   const quoteUnits = p.quote ? (p.quote.generation_units ?? p.quote.units) * p.draft.count + (p.quote.encoding_units ?? 0) : 0;
   const usesV5 = Boolean(p.quote?.unit_label.includes("V5"));
-  const quoteLabel = usesV5 ? `${quoteUnits} 次 V5` : `${quoteUnits} 积分`;
+  const quoteLabel = usesV5 ? `${quoteUnits} V5 单位` : `${quoteUnits} 积分`;
   const quoteTitle = p.quote
     ? `预计消耗：${quoteLabel}；实际以 Gate 最终结算为准。${p.quote.message ? ` ${p.quote.message}` : ""}`
     : p.quoteError ? `消耗估算失败：${p.quoteError.message}` : "正在估算消耗";

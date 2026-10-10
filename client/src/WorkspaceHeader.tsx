@@ -110,7 +110,7 @@ export default function WorkspaceHeader(p: Props) {
   const pointsLabel = quota?.anlasEnabled === false ? "不可使用"
     : quota?.isAdmin || (quota?.anlasEnabled === true && quota.anlasMonthlyLimit === 0) ? "未设月限额"
     : `${points.toLocaleString("zh-CN")} 点`;
-  const v5Label = quota?.v5Unlimited ? "不限" : `${quota?.v5LeftToday.toLocaleString("zh-CN")} 次`;
+  const v5Label = quota?.v5Unlimited ? "不限" : `${quota?.v5LeftToday.toLocaleString("zh-CN", { maximumFractionDigits: 2 })} 单位`;
   const queueCount = p.pending > 99 ? "99+" : p.pending;
 
   return <>
@@ -128,7 +128,7 @@ export default function WorkspaceHeader(p: Props) {
           <ImageIcon size={15}/>
           <span className="workspace-resource-copy"><small>免费图 今日</small><b>{legacyFreeLabel(quota)}</b></span>
         </span>}
-        {quota && <span className="workspace-resource" title={`Gate 分配给此 Key 的今日 V5 次数：${quota.v5Unlimited ? "不限" : `${quota.v5LeftToday.toLocaleString("zh-CN")} 次`}`}>
+        {quota && <span className="workspace-resource" title={`Gate 分配给此 Key 的今日 V5 额度：${v5Label}；Medium 按 Gate 配置折算`}>
           <Images size={15}/>
           <span className="workspace-resource-copy"><small>V5 今日</small><b>{v5Label}</b></span>
         </span>}

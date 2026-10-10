@@ -37,7 +37,8 @@ function compiled(file,deps={}) {
 }
 const api=compiled('api.ts');
 const {GateApi}=compiled('gateApi.ts',{'./api':api,'./types':{uuid:()=>`result-${++seq}`}});
-const {default:GateQueueStatus,gateJobLabel,queueWaitLabel}=compiled('GateQueueStatus.tsx',{'react':require('react'),'react/jsx-runtime':require('react/jsx-runtime')});
+const {default:GateQueueStatus,gateJobLabel,queueWaitLabel,validGateQueueSnapshot}=compiled('GateQueueStatus.tsx',{'react':require('react'),'react/jsx-runtime':require('react/jsx-runtime')});
+const {default:WorkspaceHeader}=compiled('WorkspaceHeader.tsx',{'react':require('react'),'react-dom':require('react-dom'),'react/jsx-runtime':require('react/jsx-runtime'),'lucide-react':require('lucide-react')});
 const {renderToStaticMarkup}=require('react-dom/server');
   const task=label=>({request_id:label,label,parameters:{},prompt:'',negative_prompt:'',model:'test',operation:'generate'});
 const batch=(...labels)=>({request_id:labels.join('-'),items:labels.map(task)});
@@ -67,7 +68,21 @@ try {
     assert.doesNotMatch(display(3,1,3.1),/冷却/);
     assert.match(display(0,0,15.1),/排队状态暂不可用/,'unchanged snapshots age out on the local clock');
     assert.match(display(0),/全站：占用 0\/1 · 排队 0/);
+    counts.concurrency=0;
+    assert.equal(validGateQueueSnapshot({global:counts,image_cooldown_remaining:0,sampled_at:now/1000}),true);
+    assert.match(display(0),/全站：占用 0\/0 · 排队 0/);
+    for(const concurrency of [-1, .5, NaN]) assert.equal(validGateQueueSnapshot({global:{...counts,concurrency},image_cooldown_remaining:0,sampled_at:now/1000}),false);
     console.log('PASS queue display: clock skew, real countdown, local expiry and compact copy');
+  }
+  {
+    for(const [remaining,label] of [[8,'8'],[7.4,'7.4'],[0.01,'0.01']]) {
+      const markup=renderToStaticMarkup(require('react').createElement(WorkspaceHeader,{
+        page:'draw',pending:0,user:{quota:{remaining:20},gate_quota:{anlasLeft:20,v5LeftToday:remaining,v5Unlimited:false}},
+      }));
+      assert.ok(markup.includes(`${label} 单位`),'fractional V5 quota retains its value and uses weighted units');
+      assert.doesNotMatch(markup,/V5 次数/);
+    }
+    console.log('PASS V5 quota display: integer and fractional weighted units');
   }
   // Accepted-but-held replies must not claim generation has started. A preview is evidence.
   let accept, stream;

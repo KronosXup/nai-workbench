@@ -428,7 +428,7 @@ export default function App() {
     encodingRetryAt ? `Vibe 编码：${queueWaitLabel(encodingWaitReason)} · ${countdown(encodingRetryAt)} 秒后自动重试` :
     waitingJob ? `${queueWaitLabel(waitingJob.retry_reason)} · ${countdown(waitingJob.retry_at)} 秒后自动重试` :
     queueEncoding ? 'Vibe 编码：等待服务器结果' : runningJob ? gateJobLabel(runningJob, queueNow) : '本机队列等待发送';
-  const quoteUnitLabel = (units: number) => quote?.unit_label.includes("V5") ? `${units} 次 V5` : `${units} 积分`;
+  const quoteUnitLabel = (units: number) => quote?.unit_label.includes("V5") ? `${units} V5 单位` : `${units} 积分`;
   function closeMask() { setShowMask(false); setPendingMaskDraft(null); }
   async function saveMask(mask: string, editedSource?: string, project?: CanvasProject) {
     const seq = generation.current, owner = identity.current, scope = canvasScope.current;
@@ -1281,7 +1281,7 @@ export default function App() {
       if (!current()) return;
       if (!Number.isFinite(price.units) || price.units < 0) throw new Error('暂时无法取得变体报价');
       const total = price.units * tasks.length;
-      const cost = price.unit_label.includes('V5') ? `${total} 次 V5 额度` : `${total} 积分`;
+      const cost = price.unit_label.includes('V5') ? `${total} V5 单位` : `${total} 积分`;
       const accepted = await askConfirmation({
         title: '生成 3 张变体？',
         message: `沿用这张图片的提示词和参数，变化强度 0.8、噪声 0.1。逐张生成，预计共 ${cost}。`,
@@ -1992,7 +1992,7 @@ export default function App() {
                     </dd>
                     {userRefreshIssue && <><dt>账户状态</dt><dd role="status">暂时无法刷新，当前显示上次读取的数据。</dd></>}
                     {user.gate_quota && <><dt>今日免费图（V4.5 及以下）</dt><dd>{legacyFreeLabel(user.gate_quota)}</dd>
-                      <dt>今日 V5 可用</dt><dd>{user.gate_quota.v5Unlimited ? '未设张数限制' : `${user.gate_quota.v5LeftToday} 次`}</dd></>}
+                      <dt>今日 V5 可用</dt><dd>{user.gate_quota.v5Unlimited ? '未设额度限制' : `${user.gate_quota.v5LeftToday.toLocaleString('zh-CN', { maximumFractionDigits: 2 })} 单位`}</dd></>}
                   </dl>
                   <button onClick={disconnect}>
                     <LogOut size={15} />
@@ -2091,7 +2091,7 @@ export default function App() {
               <span className="status-right">
                 {user.name}
                 <span className="status-divider" />{" "}
-                {`积分 ${user.quota.remaining} · 今日免费图 ${legacyFreeLabel(user.gate_quota)} · 今日 V5 ${user.gate_quota?.v5Unlimited ? '不限' : `${user.gate_quota?.v5LeftToday ?? '—'} 次`}`}
+                {`积分 ${user.quota.remaining} · 今日免费图 ${legacyFreeLabel(user.gate_quota)} · 今日 V5 ${user.gate_quota?.v5Unlimited ? '不限' : `${user.gate_quota?.v5LeftToday.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) ?? '—'} 单位`}`}
               </span>
             </footer>
           )}

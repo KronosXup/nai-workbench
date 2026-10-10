@@ -131,15 +131,16 @@ async function vibeDataFromPng(file: File): Promise<unknown> {
 
 export async function readVibeFile(file: File): Promise<VibeFileItem[]> {
   if (file.size > MAX_FILE_BYTES) throw new Error('Vibe 文件超过 20 MB');
-  if (!/\.(naiv4vibe|naiv4vibebundle|png)$/i.test(file.name)) throw new Error('请选择 Vibe 数据文件或带 naidata 的 PNG');
+  if (!/\.(naiv4vibe|naiv4vibebundle|json|png)$/i.test(file.name)) throw new Error('请选择 Vibe 数据文件、JSON 或带 naidata 的 PNG');
   let data: unknown;
   if (/\.png$/i.test(file.name)) data = await vibeDataFromPng(file);
   else {
-    try { data = JSON.parse(await file.text()); } catch { throw new Error('Vibe 文件不是有效 JSON'); }
+    try { data = JSON.parse((await file.text()).replace(/^\uFEFF/, '')); } catch { throw new Error('Vibe 文件不是有效 JSON'); }
   }
   if (!object(data)) throw new Error('Vibe 文件结构无效');
   if (data.identifier === 'novelai-vibe-transfer') return [parseItem(data)];
-  if (data.identifier !== 'novelai-vibe-transfer-bundle' || data.version !== 1 || !Array.isArray(data.vibes) || data.vibes.length < 1 || data.vibes.length > MAX_ITEMS) throw new Error('Vibe 合集结构或数量无效');
+  if (data.identifier !== 'novelai-vibe-transfer-bundle') throw new Error('未识别为 NovelAI Vibe 数据；JSON 需包含 Vibe 单项或合集结构');
+  if (data.version !== 1 || !Array.isArray(data.vibes) || data.vibes.length < 1 || data.vibes.length > MAX_ITEMS) throw new Error('Vibe 合集结构或数量无效');
   return data.vibes.map(parseItem);
 }
 

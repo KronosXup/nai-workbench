@@ -14,6 +14,11 @@ assert.equal(vibe.resolveVibeReference(encoding,item,model,.7).value,encoding);
 assert.equal(vibe.resolveVibeReference(encoding,item,model,.7).pending,false);
 assert.throws(()=>vibe.resolveVibeReference(encoding,item,'nai-diffusion-4-full',.7),/不适用于/);
 assert.deepEqual(await vibe.readVibeFile(asFile(item)),[item]);
+assert.deepEqual(await vibe.readVibeFile(asFile(item,'data.json')),[item]);
+assert.deepEqual(await vibe.readVibeFile(new File(['\uFEFF'+JSON.stringify(item)],'DATA.JSON')),[item]);
+await assert.rejects(()=>vibe.readVibeFile(asFile({prompt:'not vibe data'},'settings.json')),/未识别为 NovelAI Vibe/);
+await assert.rejects(()=>vibe.readVibeFile(new File(['{invalid json'],'broken.json')),/不是有效 JSON/);
+await assert.rejects(()=>vibe.readVibeFile(asFile({...item,id:'0'.repeat(64)},'corrupt.json')),/校验失败/);
 await assert.rejects(()=>vibe.readVibeFile(asFile({...item,id:'0'.repeat(64)})),/校验失败/);
 const imageItem=vibe.makeVibeFile(image,model,.7,.6);
 assert.equal(vibe.resolveVibeReference(image,imageItem,model,.7).pending,true);
@@ -29,6 +34,8 @@ assert.equal(vibe.vibeParameterHash(.7,'bWFzaw=='),createHash('sha256').update('
 await assert.rejects(()=>vibe.readVibeFile(asFile({...imageItem,image:'Y29ycnVwdA=='})),/校验失败/);
 const bundle={identifier:'novelai-vibe-transfer-bundle',version:1,vibes:[item,imageItem]};
 assert.equal((await vibe.readVibeFile(asFile(bundle,'data.naiv4vibebundle'))).length,2);
+assert.deepEqual(await vibe.readVibeFile(asFile(bundle,'bundle.json')),[item,imageItem]);
+await assert.rejects(()=>vibe.readVibeFile(asFile({...bundle,vibes:Array(17).fill(item)},'large.json')),/数量无效/);
 await assert.rejects(()=>vibe.readVibeFile(asFile({...bundle,vibes:Array(17).fill(item)},'data.naiv4vibebundle')),/数量无效/);
 await assert.rejects(()=>vibe.readVibeFile(new File([new Uint8Array(20*1024*1024+1)],'large.naiv4vibe')),/20 MB/);
 const downloaded=vibe.vibeDownload([item,imageItem]);
@@ -50,4 +57,4 @@ const png=new File([
 ],'vibe.png',{type:'image/png'});
 assert.equal((await vibe.readVibeFile(png))[0].id,officialShape.id);
 await assert.rejects(()=>vibe.readVibeFile(new File([Uint8Array.from([137,80,78,71,13,10,26,10]),pngChunk('IEND',new Uint8Array())],'empty.png')),/不含 Vibe 数据/);
-console.log('PASS Vibe data files: encoded direct use, model mismatch, image cache, integrity, bundle bounds and round trip');
+console.log('PASS Vibe data files: native/JSON/PNG imports, BOM, encoded direct use, model mismatch, integrity, bundle bounds and round trip');

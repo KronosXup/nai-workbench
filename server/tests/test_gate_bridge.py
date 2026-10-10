@@ -103,7 +103,8 @@ def test_bridge_honors_stream_choice_through_gate_route_and_final_delivery():
     asyncio.run(run())
 
 
-def test_bridge_auth_isolation_operations_no_storage_and_stream():
+@pytest.mark.parametrize('v5_left', [8, 7.4, 0.01])
+def test_bridge_auth_isolation_operations_no_storage_and_stream(v5_left):
     calls, tokens = [], []
 
     async def gate(request):
@@ -116,7 +117,7 @@ def test_bridge_auth_isolation_operations_no_storage_and_stream():
         if request.url.path == '/v1/me':
             return httpx.Response(404)
         assert request.url.path == '/user/subscription'
-        return httpx.Response(200,json={'naiGate':dict(anlasMonthlyLimit=30,anlasLeft=20,v5LeftToday=8,v5DailyLimit=10,v5Unlimited=False,imageModelScope='all')})
+        return httpx.Response(200,json={'naiGate':dict(anlasMonthlyLimit=30,anlasLeft=20,v5LeftToday=v5_left,v5DailyLimit=10,v5Unlimited=False,imageModelScope='all')})
 
     class Adapter:
         def __init__(self, settings, *, gate_mode):
@@ -144,6 +145,7 @@ def test_bridge_auth_isolation_operations_no_storage_and_stream():
                 headers = {'Authorization':'Bearer '+token}
                 me = await client.get('/api/me',headers=headers)
                 assert me.headers['cache-control'] == 'no-store'
+                assert me.json()['gate_quota']['v5LeftToday'] == v5_left
                 users.append(me.json()['id'])
                 response = await client.post('/api/execute',headers=headers,json=task())
                 events = [json.loads(line) for line in response.text.splitlines()]
@@ -169,9 +171,11 @@ def test_bridge_auth_isolation_operations_no_storage_and_stream():
 def test_quotes_use_gate_units_and_reference_surcharges():
     assert estimate(task())['units']==0
     q=estimate(task('nai-diffusion-5-full'))
-    assert q['units']==1 and q['unit_label']=='V5次数' and not q['verified']
+    assert q['units']==1 and q['unit_label']=='V5单位' and not q['verified']
+    assert 'Medium' in q['message'] and 'Gate' in q['message']
     item=task('nai-diffusion-5-full');item['parameters']['steps']=29
     assert estimate(item)['units']==30 and estimate(item)['unit_label']=='积分'
+    assert 'Medium' in estimate(item)['message']
     item=task();item['parameters']['character_reference_images']=['fixture']
     assert estimate(item)['units']==5
 
@@ -318,7 +322,7 @@ def test_v5_curated_is_listed_quoted_and_forwarded_as_curated():
             assert not curated['precise_reference'] and not curated['vibe_transfer']
     asyncio.run(run())
     item = task('nai-diffusion-5-curated')
-    assert estimate(item)['unit_label'] == 'V5次数'
+    assert estimate(item)['unit_label'] == 'V5单位'
     _, body, _ = build_request(item)
     assert body['model'] == 'nai-diffusion-5-curated'
     item['parameters']['steps'] = 29
@@ -358,7 +362,7 @@ def test_v5_curated_inpaint_maps_request_and_uses_v45_quote_classification():
         if operation == 'img2img':
             ordinary['parameters']['image'] = encoded
         ordinary_quote = estimate(ordinary)
-        assert ordinary_quote['unit_label'] == 'V5次数'
+        assert ordinary_quote['unit_label'] == 'V5单位'
         _, ordinary_body, _ = build_request(ordinary)
         assert ordinary_body['model'] == 'nai-diffusion-5-curated'
         assert ordinary_body['action'] == operation
@@ -482,9 +486,9 @@ def test_reference_quotes_keep_free_base_and_v5_uses_pixel_area():
     assert estimate(item)['units'] == 5
     item = task('nai-diffusion-5-full')
     item['parameters'].update(width=896, height=1152)
-    assert estimate(item)['units'] == 1 and estimate(item)['unit_label'] == 'V5次数'
+    assert estimate(item)['units'] == 1 and estimate(item)['unit_label'] == 'V5单位'
     item['parameters'].update(width=512, height=768)
-    assert estimate(item)['units'] == 1 and estimate(item)['unit_label'] == 'V5次数'
+    assert estimate(item)['units'] == 1 and estimate(item)['unit_label'] == 'V5单位'
 
 
 def test_img2img_and_inpaint_quotes_match_gate_billing_rules():
@@ -497,7 +501,7 @@ def test_img2img_and_inpaint_quotes_match_gate_billing_rules():
             if operation == 'inpaint':
                 item['parameters'].update(mask=mask, img2img={'strength': 1})
             quote = estimate(item)
-            assert (quote['units'], quote['unit_label']) == ((1, 'V5次数') if 'diffusion-5' in model else (0, '积分'))
+            assert (quote['units'], quote['unit_label']) == ((1, 'V5单位') if 'diffusion-5' in model else (0, '积分'))
             item['parameters']['steps'] = 29
             if operation == 'inpaint':
                 assert estimate(item)['units'] == (9 if 'diffusion-5' in model else 6)
@@ -512,6 +516,11 @@ def test_img2img_and_inpaint_quotes_match_gate_billing_rules():
     ('上游图片服务限流保护中，所有图片生成暂停约 125 秒', True, None, 'gate_cooldown', 125),
     ('上游图片服务限流保护中，所有图片生成暂停约 125 秒', False, '150', 'gate_cooldown', 150),
     ('当前排队人数过多，请稍后再试', True, None, 'gate_busy', 60),
+    *[(message, flat, '12', 'gate_busy', 12) for message in (
+        '图片任务排队超时，请稍后再试',
+        '图片预算核对排队超时，请稍后再试',
+        '上游图片任务排队超时，请稍后再试',
+    ) for flat in (False, True)],
 ])
 def test_gate_pre_dispatch_waits_have_safe_retry_protocol(message, flat, header, code, delay):
     calls = []
@@ -538,6 +547,8 @@ def test_gate_pre_dispatch_waits_have_safe_retry_protocol(message, flat, header,
     (429, '已达今日 V5 额度（10 张/天），明天恢复后再用', True),
     (429, '上游限流(429)，全站图片生成已进入冷却', True),
     (429, 'unknown private-prompt test-only-token', True),
+    (429, '上游图片任务排队超时，请稍后再试 private-prompt', True),
+    (429, '上游图片任务排队超时，请稍后再试', False),
     (429, '请求过于频繁（上限 2 次/分钟），请稍后再试 private-prompt', True),
     (429, '请求过于频繁（上限 2 次/分钟），请稍后再试', False),
     (402, '请求过于频繁（上限 2 次/分钟），请稍后再试', True),
@@ -637,7 +648,8 @@ def test_busy_browser_bridge_reports_a_retryable_wait_without_starting_another_j
     asyncio.run(run())
 
 
-def test_queue_status_is_authenticated_cached_whitelisted_and_failure_safe(monkeypatch):
+@pytest.mark.parametrize('concurrency', [8, 0])
+def test_queue_status_is_authenticated_cached_whitelisted_and_failure_safe(monkeypatch, concurrency):
     async def run():
         now = [100.0]
         monkeypatch.setattr(gate_bridge, '_queue_status_now', lambda: now[0])
@@ -654,13 +666,13 @@ def test_queue_status_is_authenticated_cached_whitelisted_and_failure_safe(monke
             if mode[0] == 'blocked':
                 entered.set()
                 await release.wait()
-                return httpx.Response(200, json={'global': {'active': 2, 'waiting': 3, 'concurrency': 8, 'private': 'hidden'},
+                return httpx.Response(200, json={'global': {'active': 2, 'waiting': 3, 'concurrency': concurrency, 'private': 'hidden'},
                                                   'image_cooldown_remaining': 1.5, 'private': 'hidden'})
             if mode[0] == 'valid':
-                return httpx.Response(200, json={'global': {'active': 1, 'waiting': 4, 'concurrency': 8, 'private': 'hidden'},
+                return httpx.Response(200, json={'global': {'active': 1, 'waiting': 4, 'concurrency': concurrency, 'private': 'hidden'},
                                                   'image_cooldown_remaining': 0, 'private': 'hidden'})
             if mode[0] == 'invalid':
-                return httpx.Response(200, json={'global': {'active': 1, 'waiting': 0, 'concurrency': 0},
+                return httpx.Response(200, json={'global': {'active': 1, 'waiting': 0, 'concurrency': -1},
                                                   'image_cooldown_remaining': 0})
             if mode[0] == 'large':
                 return httpx.Response(200, content=b' ' * (16 * 1024 + 1))
@@ -681,7 +693,7 @@ def test_queue_status_is_authenticated_cached_whitelisted_and_failure_safe(monke
             assert a.status_code == b.status_code == 200 and len(calls) == 1
             snapshot = a.json()
             assert set(snapshot) == {'global', 'image_cooldown_remaining', 'sampled_at'}
-            assert snapshot['global'] == {'active': 2, 'waiting': 3, 'concurrency': 8}
+            assert snapshot['global'] == {'active': 2, 'waiting': 3, 'concurrency': concurrency}
             assert snapshot['image_cooldown_remaining'] == 1.5 and snapshot['sampled_at'] > 0
             assert a.json()['sampled_at'] == b.json()['sampled_at']
 

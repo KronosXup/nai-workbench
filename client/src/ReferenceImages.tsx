@@ -424,7 +424,7 @@ export default function ReferenceImages({
           )}
           {openMenu === "vibe" && (
             <MorePanel>
-              <button type="button" disabled={Boolean(vibeAddReason)} title={vibeAddReason || undefined} onClick={() => { setOpenMenu(null); vibeFileInput.current?.click(); }}>导入 Vibe 文件 / PNG</button>
+              <button type="button" disabled={Boolean(vibeAddReason)} title={vibeAddReason || undefined} onClick={() => { setOpenMenu(null); vibeFileInput.current?.click(); }}>导入 Vibe / JSON / PNG</button>
               {vibeImages.length > 1 && <button type="button" onClick={() => { setOpenMenu(null); onExportVibes(vibeImages.map((_, index) => index)); }}>导出合集</button>}
             </MorePanel>
           )}
@@ -432,8 +432,8 @@ export default function ReferenceImages({
             ref={vibeFileInput}
             className="nai-ri-file-input"
             type="file"
-            accept=".naiv4vibe,.naiv4vibebundle,.png,application/json,image/png"
-            aria-label="导入 Vibe 数据文件或 PNG"
+            accept=".naiv4vibe,.naiv4vibebundle,.json,.png,application/json,image/png"
+            aria-label="导入 Vibe 数据文件、JSON 或 PNG"
             disabled={Boolean(vibeAddReason)}
             onChange={event => clearFileInput(event, onImportVibe)}
           />

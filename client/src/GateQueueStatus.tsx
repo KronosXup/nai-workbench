@@ -22,9 +22,9 @@ export function gateJobLabel(job: Job, now = Date.now() / 1000) {
     job.execution_phase === 'submitting' ? '正在提交' : '等待服务器结果';
   return undefined;
 }
-function validSnapshot(value: Snapshot) {
+export function validGateQueueSnapshot(value: Snapshot) {
   const g = value?.global;
-  return g && [g.active, g.waiting, g.concurrency].every(n => Number.isInteger(n) && n >= 0) && g.concurrency >= 1 &&
+  return g && [g.active, g.waiting, g.concurrency].every(n => Number.isInteger(n) && n >= 0) &&
     Number.isFinite(value.image_cooldown_remaining) && value.image_cooldown_remaining >= 0 &&
     Number.isFinite(value.sampled_at) && value.sampled_at > 0;
 }
@@ -46,7 +46,7 @@ export function useGateQueueStatus(api: Api | null, enabled: boolean): Monitor {
       try {
         // This is an aggregate Gate snapshot, never a job position or a retry signal.
         const snapshot = await currentApi!.request<Snapshot>('/queue-status', undefined, undefined, controller.signal);
-        if (!validSnapshot(snapshot)) throw new Error('Invalid queue snapshot');
+        if (!validGateQueueSnapshot(snapshot)) throw new Error('Invalid queue snapshot');
         if (!stopped) {
           // Server and browser clocks can differ. Age a sample on the local
           // monotonic clock, retaining its first receipt when the cache repeats it.

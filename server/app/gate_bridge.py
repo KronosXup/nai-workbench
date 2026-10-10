@@ -77,7 +77,7 @@ def _queue_status_payload(raw):
     counts = {}
     for name in ('active', 'waiting', 'concurrency'):
         value = source.get(name)
-        if type(value) is not int or value < (1 if name == 'concurrency' else 0):
+        if type(value) is not int or value < 0:
             raise ValueError('invalid queue count')
         counts[name] = value
     cooldown = raw.get('image_cooldown_remaining')
@@ -154,7 +154,7 @@ def estimate(task):
     vibes = len(p.get('reference_image_multiple') or p.get('reference_image_multiple_cached') or [])
     v5 = model.startswith('nai-diffusion-5')
     if v5 and plain and not precise and not vibes:
-        return dict(units=1, unit_label='V5次数', verified=False, message='预计每张 1 次 V5；官方额度耗尽时由 Gate 确认费用和权限。')
+        return dict(units=1, unit_label='V5单位', verified=False, message='暂按每张 1 V5 单位估算；Gate 自动切换 Medium 时按其配置折算，实际模型与扣额以 Gate 为准。')
     factor = (1.4 if p.get('sm_dyn') else 1.2) if p.get('sm') else 1
     cost = math.ceil(w*h*(2.951823174884865e-6 + 5.753298233447344e-7*steps))*factor
     if v5:
@@ -185,7 +185,9 @@ def estimate(task):
         # model is shared by this task; repeated references reuse one encoding.
         encoding = 2 * len({(sources[index], extracted[index] if index < len(extracted) else 1) for index in pending})
     return dict(units=cost+encoding, generation_units=cost, encoding_units=encoding, unit_label='积分', verified=False,
-                message=(f'包含首次 Vibe 编码 {encoding} 积分；编码复用后每张预计 {cost} 积分。' if encoding else '参数估算；Gate 的权限、参数限制和实际结算优先。'))
+                message=(f'包含首次 Vibe 编码 {encoding} 积分；编码复用后每张预计 {cost} 积分。' if encoding else
+                         '参数估算；Gate 自动切换 Medium 时会调整参数与扣额，以 Gate 实际结算为准。' if v5 else
+                         '参数估算；Gate 的权限、参数限制和实际结算优先。'))
 
 
 def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):

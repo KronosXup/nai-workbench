@@ -91,7 +91,12 @@ def gate_rejection(payload: Any, retry_after: str | None) -> AdapterError | None
     if cooldown:
         delay = retry_delay(retry_after, retry_delay(cooldown[1]))
         return AdapterError("gate_cooldown", "图片服务正在冷却，等待后自动继续", retry_after=delay, retryable=True)
-    if message == "当前排队人数过多，请稍后再试":
+    if message in {
+        "当前排队人数过多，请稍后再试",
+        "图片任务排队超时，请稍后再试",
+        "图片预算核对排队超时，请稍后再试",
+        "上游图片任务排队超时，请稍后再试",
+    }:
         return AdapterError("gate_busy", "服务排队繁忙，等待后自动继续", retry_after=retry_delay(retry_after), retryable=True)
     return None
 
