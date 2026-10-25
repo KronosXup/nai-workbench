@@ -6,7 +6,7 @@ export const samplerOptions = [
   ['k_dpmpp_2m', 'DPM++ 2M'], ['k_dpmpp_sde', 'DPM++ SDE'], ['ddim_v3', 'DDIM'],
 ];
 export const samplersFor = (model: string) => samplerOptions.filter(([id]) =>
-  model.startsWith('nai-diffusion-5') ? id !== 'ddim_v3' : id !== 'k_dpmpp_2m_sde');
+  !model.startsWith('nai-diffusion-5') || id !== 'ddim_v3');
 
 export function defaultNoiseSchedule(sampler: string) {
   if (sampler === 'k_dpmpp_2m' || sampler === 'k_dpm_2') return 'exponential';

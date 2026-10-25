@@ -129,8 +129,8 @@
 .nai-shell .nai-card-heading > div { display: flex; gap: 10px; }
 .nai-shell .nai-card-heading button { min-height: 24px; width: 26px; height: 24px; padding: 3px; background: none; }
 .nai-shell .nai-card-heading button:hover { background: var(--nai-control); }
-.nai-shell textarea.nai-prompt-input { display: block; width: 100%; min-height: 104px; padding: 0; border: 0; border-radius: 0; background: none; font-size: 16px; line-height: 26px; resize: none; }
-.nai-shell textarea.nai-prompt-input:focus { border: 0; box-shadow: none; }
+.nai-shell textarea.nai-prompt-input { display: block; width: 100%; min-height: 104px; padding: 0; border: 0; border-radius: 0; background: none; font-size: 16px; line-height: 26px; resize: none; field-sizing: content; }
+.nai-shell textarea.nai-prompt-input:focus { border: 0; box-shadow: none; outline: none; }
 .nai-shell .nai-tag-input { position: relative; }
 .nai-shell .nai-tag-suggestions { position: absolute; z-index: 12; top: 100%; left: 0; right: 0; max-height: 214px; overflow: auto; padding: 4px; border: 1px solid var(--nai-line); border-radius: 6px; background: #22243d; box-shadow: 0 12px 28px #080913a6; }
 .nai-shell .nai-tag-suggestions button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 7px 9px; border: 0; border-radius: 4px; background: transparent; color: var(--nai-text); text-align: left; font-size: 13px; }

@@ -245,7 +245,7 @@ export default function DirectorWorkspace(p: Props) {
             {selectedResult && <div className="director-result-overlay">
               <span className="director-result-name" title={selectedResult.result.filename}>{directorMatchesJob(state, selectedResult.job) ? "结果" : "上次结果"} · {toolNames[selectedResult.job.parameters.req_type as DirectorTool] || "图片处理"}</span>
               <div className="director-result-actions">
-                <button type="button" title="下载 PNG" aria-label="下载结果 PNG" onClick={() => local.download(selectedResult.blob, selectedResult.result.filename || "director-result.png")}><Download size={14} /></button>
+                <button type="button" title="下载 PNG" aria-label="下载结果 PNG" onClick={() => local.downloadImage(selectedResult)}><Download size={14} /></button>
                 <button type="button" onClick={() => p.onUseResult(selectedResult)}>图生图</button>
                 <button type="button" onClick={() => p.onContinue(selectedResult)}>用作原图</button>
               </div>

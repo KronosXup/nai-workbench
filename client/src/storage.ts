@@ -229,6 +229,11 @@ export function download(blob: Blob, name: string) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
+export function downloadImage({ blob, result }: LocalImage) {
+  const dot = result.filename.lastIndexOf(".");
+  const extension = dot < 0 ? "" : result.filename.slice(dot);
+  download(blob, `nai-${result.id}${extension}`);
+}
 const MAX_BACKUP_PART_FILE_BYTES = 256 * 1024 * 1024;
 const MAX_BACKUP_PART_DECODED_BYTES = 192 * 1024 * 1024;
 

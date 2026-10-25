@@ -67,9 +67,8 @@
 .nai-shell .nai-ri-source-card.has-source :is(.nai-ri-source-enable-row, .nai-ri-mask-state, .nai-ri-upscale-info) { margin: 0; padding: 12px; }
 .nai-shell .nai-ri-source-card.has-source .nai-ri-source-enable-row + .nai-ri-source-parameters,
 .nai-shell .nai-ri-source-card.has-source .nai-ri-mask-state + .nai-ri-source-parameters { padding-top: 4px; }
-.nai-shell .nai-ri-reference-actions { display: flex; align-items: center; flex: none; gap: 4px; }
-.nai-shell .nai-reference-images .nai-ri-reference-actions button { width: 36px; height: 28px; padding: 4px; }
-.nai-shell .nai-ri-reference-head.is-empty .nai-ri-reference-actions button { height: 40px; }
+.nai-shell .nai-ri-reference-actions { display: flex; align-items: center; flex: none; gap: 8px; }
+.nai-shell .nai-reference-images .nai-ri-reference-actions button { width: 40px; height: 40px; padding: 4px; }
 .nai-shell .nai-ri-reference-list { display: grid; gap: 12px; min-width: 0; margin-top: 12px; }
 .nai-shell .nai-ri-reference-item { display: grid; grid-template-columns: 100px minmax(0, 1fr); grid-template-rows: 1fr auto; align-items: center; gap: 8px 12px; min-width: 0; padding-top: 12px; border-top: 1px solid var(--nai-line); }
 .nai-shell .nai-ri-reference-thumb,
@@ -89,7 +88,8 @@
   .nai-shell .nai-ri-card { padding: 10px; }
   .nai-shell .nai-ri-source-head.has-image { padding-left: 76px; }
   .nai-shell .nai-ri-source-thumb { width: 56px; height: 82px; left: 10px; }
-  .nai-shell .nai-ri-source-actions { gap: 6px; }
+  .nai-shell .nai-ri-source-actions,
+  .nai-shell .nai-ri-reference-actions { gap: 6px; }
   .nai-shell .nai-reference-images .nai-ri-source-actions .nai-ri-icon-action { width: 32px; padding: 4px 8px; }
   .nai-shell .nai-reference-images .nai-ri-source-actions .nai-ri-compact-action { padding-inline: 6px; }
   .nai-shell .nai-ri-reference-item { grid-template-columns: 88px minmax(0, 1fr); column-gap: 10px; }
@@ -107,7 +107,8 @@
 @media (max-width: 350px) {
   .nai-shell .nai-ri-source-head.has-image { padding-left: 62px; padding-right: 8px; }
   .nai-shell .nai-ri-source-thumb { width: 44px; height: 76px; }
-  .nai-shell .nai-ri-source-actions { gap: 4px; }
+  .nai-shell .nai-ri-source-actions,
+  .nai-shell .nai-ri-reference-actions { gap: 4px; }
   .nai-shell .nai-reference-images .nai-ri-source-actions .nai-ri-icon-action { width: 28px; padding: 4px 6px; }
 }
 

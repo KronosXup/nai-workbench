@@ -26,7 +26,14 @@ function actualModule(name) {
 }
 const {configurationIssueFor, effectiveModelForOperation, usesGenerationSettings} = actualModule('taskValidation.ts');
 const {ApiError} = actualModule('api.ts');
-const {generationParameters, defaultNoiseSchedule, modelGenerationDefaults} = actualModule('modelSettings.ts');
+const {generationParameters, defaultNoiseSchedule, modelGenerationDefaults, samplersFor} = actualModule('modelSettings.ts');
+for (const model of ['nai-diffusion-3', 'nai-diffusion-furry-3', 'nai-diffusion-4-full', 'nai-diffusion-4-5-full', 'nai-diffusion-5-full']) {
+  assert.ok(samplersFor(model).some(([id]) => id === 'k_dpmpp_2m_sde'));
+  const sent = generationParameters(model, {sampler:'k_dpmpp_2m_sde', noise_schedule:'karras'});
+  assert.equal(sent.sampler, 'k_dpmpp_2m_sde');
+  assert.equal(sent.noise_schedule, 'karras');
+}
+assert.ok(!samplersFor('nai-diffusion-5-full').some(([id]) => id === 'ddim_v3'));
 // The hidden V5 sampler flags must survive task preparation, including replay
 // of an older draft. Test the outgoing copy without changing that draft.
 {

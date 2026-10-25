@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { LocalImage } from './types';
-import { download } from './storage';
+import { downloadImage } from './storage';
 
 type Point = { x: number; y: number };
 type Gesture =
@@ -139,7 +139,7 @@ export default function ImageViewer({row, rows, onSelect, onClose}: {
       <button aria-label="缩小图片" onClick={()=>changeZoom(zoomRef.current/1.25)}>−</button>
       <button onClick={resetView}>{Math.round(zoom*100)}% · 适应</button>
       <button aria-label="放大图片" onClick={()=>changeZoom(zoomRef.current*1.25)}>＋</button>
-      <button onClick={()=>download(row.blob,row.result.filename)}>下载原图</button>
+      <button onClick={()=>downloadImage(row)}>下载原图</button>
     </header>
     <div ref={stageRef} className="image-viewer-stage"
       onWheel={e=>changeZoom(zoomRef.current*(e.deltaY<0?1.1:1/1.1))}
