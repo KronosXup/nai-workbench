@@ -1622,7 +1622,7 @@ export default function App() {
               onUseAs={(operation) => void useAs(operation, drawingSelected)}
               onSave={() =>
                 drawingSelected &&
-                local.download(drawingSelected.blob, drawingSelected.result.filename)
+                local.downloadImage(drawingSelected)
               }
             />
           )}
@@ -1945,7 +1945,7 @@ export default function App() {
                           </button>
                           <button
                             onClick={() =>
-                              local.download(row.blob, row.result.filename)
+                              local.downloadImage(row)
                             }
                             aria-label="下载图片"
                           >

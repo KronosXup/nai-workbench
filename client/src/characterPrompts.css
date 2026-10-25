@@ -137,7 +137,7 @@
 }
 .nai-shell .nai-sidebar .cp-tabs button[aria-pressed="true"] { border-color: var(--nai-line, #30334e); background: var(--nai-control, #20233d); color: var(--nai-accent, #e9e5b9); }
 .nai-shell .nai-sidebar .cp-card-body .nai-tag-input { min-width: 0; }
-.nai-shell .nai-sidebar .cp-card-body .nai-prompt-input { min-height: 54px; padding: 7px 8px; font-size: 16px; line-height: 1.45; }
+.nai-shell .nai-sidebar .cp-card-body .nai-prompt-input { min-height: 96px; padding: 7px 8px; font-size: 16px; line-height: 1.45; }
 .nai-shell .nai-sidebar .cp-card-body .nai-token-meter { min-height: 4px; }
 .nai-shell .nai-sidebar .cp-card-body .nai-token-meter .nai-token-tooltip { font-size: 10px; }
 
