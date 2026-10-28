@@ -436,15 +436,16 @@ def test_quote_metadata_body_cap_and_timeout(monkeypatch):
     asyncio.run(run())
 
 
-def test_quote_frequency_limits_are_bounded_per_key_and_globally(monkeypatch):
+def test_quote_frequency_limits_do_not_let_other_keys_block_valid_quotes(monkeypatch):
     now = [300.0]
     calls = []
     monkeypatch.setattr(gate_bridge, '_security_now', lambda: now[0])
-    monkeypatch.setattr(gate_bridge, 'QUOTE_GLOBAL_RATE_PER_WINDOW', 3)
     monkeypatch.setattr(gate_bridge, 'QUOTE_KEY_RATE_PER_WINDOW', 2)
 
     async def gate(request):
         if request.url.path == '/v1/image/quote' and request.method == 'POST':
+            if request.headers['authorization'].startswith('Bearer invalid-'):
+                return httpx.Response(401, json={'error': {'message': 'Invalid Key'}})
             return httpx.Response(200, json=quote_result())
         calls.append(request.url.path)
         if request.url.path == '/user/information':
@@ -459,7 +460,11 @@ def test_quote_frequency_limits_are_bounded_per_key_and_globally(monkeypatch):
             assert (await client.post('/api/quote', headers=a, json=quote_metadata())).status_code == 200
             assert (await client.post('/api/quote', headers=a, json=quote_metadata())).status_code == 200
             assert (await client.post('/api/quote', headers=a, json=quote_metadata())).status_code == 429
-            # A's per-Key limit does not consume the process-wide slot for B.
+            # Neither a busy Key nor invalid credentials consume another Key's allowance.
+            assert (await client.post('/api/quote', headers=b, json=quote_metadata())).status_code == 200
+            for index in range(3):
+                invalid = {'Authorization': f'Bearer invalid-{index}'}
+                assert (await client.post('/api/quote', headers=invalid, json=quote_metadata())).status_code == 401
             assert (await client.post('/api/quote', headers=b, json=quote_metadata())).status_code == 200
             assert (await client.post('/api/quote', headers=b, json=quote_metadata())).status_code == 429
 

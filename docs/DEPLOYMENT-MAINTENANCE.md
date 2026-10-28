@@ -36,6 +36,22 @@ DOCKER_CONFIG="$docker_config_dir" bash deploy.sh
 
 ## 日常更新、备份与回退
 
+### 计价参数报价版本的配套升级
+
+`v0.1.0-beta.10` 需要 Gate 支持最多 4 KiB 的 `{operation,model,parameters}` 报价合同。配套源码为 [service-tools 提交 2f81167](https://github.com/KronosXup/service-tools/commit/2f81167e52c946cce4740b9d890fc3b44c00dba4)，对应 [PR #8](https://github.com/fangchen2003/service-tools/pull/8)。仅把工作台升级到此版本，或仅确认 `/api/health` 正常，都不能完成这次协议升级。
+
+1. 先结束正在生成的任务，备份 Gate；需要保留的临时参考图或 Vibe 编码先导出。
+2. 按下文“更新 Gate”步骤构建上述配套提交或已包含同一合同的后续版本。若上游尚未合并，可先取得明确的配套源码：
+
+   ```sh
+   git -C gate fetch https://github.com/KronosXup/service-tools.git fix/quote-admission
+   git -C gate checkout 2f81167e52c946cce4740b9d890fc3b44c00dba4
+   ```
+
+3. 再将工作台更新为 `ghcr.io/kronosxup/nai-workbench:v0.1.0-beta.10`，刷新已有浏览器标签页，确认普通生成和常用图片工具都能取得报价，再开始新任务。
+
+旧的完整图片 `payload` 报价格式不再接受；暂不升级 Gate 时，应继续使用与旧 Gate 配套的工作台版本。安装向导不会自动更新 Gate。
+
 ### 只更新工作台
 
 使用安装向导的用户，在仓库根目录运行 `bash deploy.sh update`，或指定版本 `bash deploy.sh update v0.1.0-beta.5`。向导只更新工作台，保留更新前的 `.env.before-update`；这个文件含凭据，不要分享。下载失败不会改配置；启动失败会恢复配置，但仍需检查容器是否正常。它不会自动更新 Gate。

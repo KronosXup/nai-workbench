@@ -41,7 +41,6 @@ MODELS = [
 QUOTE_MAX_BODY_BYTES = 4 * 1024
 QUOTE_READ_TIMEOUT_SECONDS = 30
 QUOTE_RATE_WINDOW_SECONDS = 60
-QUOTE_GLOBAL_RATE_PER_WINDOW = 600
 QUOTE_KEY_RATE_PER_WINDOW = 180
 REQUEST_READ_TIMEOUT_SECONDS = 30
 EXECUTE_PREP_MAX_CONCURRENCY = 8
@@ -97,7 +96,6 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
     identity_inflight = {}
     identity_lookup_events = deque()
     quote_rate_lock = asyncio.Lock()
-    quote_global_events = deque()
     quote_key_events = OrderedDict()
     execute_prep_slots = asyncio.Semaphore(EXECUTE_PREP_MAX_CONCURRENCY)
     tag_slots = asyncio.Semaphore(TAG_MAX_CONCURRENCY)
@@ -259,16 +257,13 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
     async def admit_quote(digest):
         now = _security_now()
         async with quote_rate_lock:
-            _prune_window(quote_global_events, now, QUOTE_RATE_WINDOW_SECONDS)
             events = quote_key_events.get(digest)
             if events is None:
                 events = deque()
             else:
                 _prune_window(events, now, QUOTE_RATE_WINDOW_SECONDS)
-            if (len(quote_global_events) >= QUOTE_GLOBAL_RATE_PER_WINDOW or
-                    len(events) >= QUOTE_KEY_RATE_PER_WINDOW):
+            if len(events) >= QUOTE_KEY_RATE_PER_WINDOW:
                 raise HTTPException(429, '报价请求过多，请稍后再试', headers={'Retry-After': '60'})
-            quote_global_events.append(now)
             events.append(now)
             quote_key_events[digest] = events
             quote_key_events.move_to_end(digest)

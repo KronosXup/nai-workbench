@@ -3,6 +3,7 @@
 本项目连接 [fangchen2003/service-tools](https://github.com/fangchen2003/service-tools) 的 NAI Gate。
 首版所需的路由和响应字段已按上游提交 [`b81959c`](https://github.com/fangchen2003/service-tools/tree/b81959c0cf5533ca5fc3071dff2e8926e9b12629) 核对。
 当前代码要求 Gate 提供下面的计价参数报价接口；工作台与 Gate 需一起升级，升级后刷新已有页面。旧的完整图片 `payload` 报价格式不再接受，工作台不保留另一套本地费率公式。
+`v0.1.0-beta.10` 的配套 Gate 源码为 [`2f81167`](https://github.com/KronosXup/service-tools/commit/2f81167e52c946cce4740b9d890fc3b44c00dba4)；升级顺序见[维护文档](DEPLOYMENT-MAINTENANCE.md#计价参数报价版本的配套升级)。
 
 | 工作台用途 | Gate 接口 |
 |---|---|
