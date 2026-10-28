@@ -291,6 +291,14 @@ export class GateApi extends Api {
     try {
       const task = executionPayload({request_id:job.request_id, operation:job.operation, model:job.model, prompt:job.prompt,
         negative_prompt:job.negative_prompt, parameters:job.parameters, label:job.label, cost_limit:job.cost_limit});
+      if (task.operation === 'img2img' && task.parameters.enhance === true) {
+        try {
+          const {prepareEnhanceImage} = await import('./enhanceImage');
+          task.parameters.image = await execution.wait(() => prepareEnhanceImage(task), '增强图片处理超时，本次未提交');
+        } catch {
+          throw new GateExecutionError('增强图片处理失败，本次未提交，请重新选择图片', {code:'enhance_preparation_failed',uncertain:false});
+        }
+      }
       const response = await execution.wait(()=>this.raw('/execute',task,execution.signal),FETCH_TIMEOUT_MESSAGE);
       job.last_data_at=Date.now()/1000;
       if (!response.ok) {

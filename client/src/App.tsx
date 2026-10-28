@@ -948,6 +948,8 @@ export default function App() {
   ): Task {
     const effectiveModel = effectiveModelForOperation(draft.model, operation);
     const p = generationParameters(effectiveModel, draft.parameters);
+    delete p.enhance;
+    delete p.upscaled_enhance;
     p.stream = draft.parameters.stream === true;
     const rawVibeFiles=draft.parameters.vibe_files;
     const vibeFiles=Array.isArray(rawVibeFiles)?rawVibeFiles:[];
@@ -1390,6 +1392,11 @@ export default function App() {
     const seq = generation.current, owner = identity.current, selection = ++importSequence.current;
     try {
       const image = await readImage(new File([row.blob], row.result.filename, { type: row.result.media_type }));
+      if (row.result.media_type === 'image/png') {
+        const header = new Uint8Array(await row.blob.slice(24, 26).arrayBuffer());
+        // Canvas decoding can round RGB values at alpha 254 before stealth cleanup.
+        if (header[0] === 8 && [2, 6].includes(header[1])) image.data = await local.blobBase64(row.blob);
+      }
       if (seq !== generation.current || owner !== identity.current || pageRef.current !== 'draw' ||
           selection !== importSequence.current || selectedIdRef.current !== row.id) return;
       const scales = enhanceScales(image.width, image.height, draftRef.current.model).filter(option => !option.disabled);

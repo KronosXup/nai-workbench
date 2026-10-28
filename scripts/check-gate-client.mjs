@@ -4,6 +4,7 @@ import {createRequire} from 'node:module';
 const require=createRequire(new URL('../client/package.json',import.meta.url));
 const ts=require('typescript');
 let seq=0, names=[], execute, executeSignals=[], executeTasks=[];
+let enhancePreparation=async()=> 'prepared-image';
 const saved={fetch:globalThis.fetch,setTimeout:globalThis.setTimeout,clearTimeout:globalThis.clearTimeout,now:Date.now};
 let now=1_000_000, timerSequence=0;
 const timers=new Map();
@@ -36,7 +37,8 @@ function compiled(file,deps={}) {
   const exports={};new Function('require','exports',code)(name=>deps[name],exports);return exports;
 }
 const api=compiled('api.ts');
-const {GateApi}=compiled('gateApi.ts',{'./api':api,'./types':{uuid:()=>`result-${++seq}`}});
+const {GateApi}=compiled('gateApi.ts',{'./api':api,'./types':{uuid:()=>`result-${++seq}`},
+  './enhanceImage':{prepareEnhanceImage:task=>enhancePreparation(task)}});
 const {default:GateQueueStatus,gateJobLabel,queueWaitLabel,validGateQueueSnapshot}=compiled('GateQueueStatus.tsx',{'react':require('react'),'react/jsx-runtime':require('react/jsx-runtime')});
 const {default:WorkspaceHeader}=compiled('WorkspaceHeader.tsx',{'react':require('react'),'react-dom':require('react-dom'),'react/jsx-runtime':require('react/jsx-runtime'),'lucide-react':require('lucide-react')});
 const {renderToStaticMarkup}=require('react-dom/server');
@@ -83,6 +85,23 @@ try {
       assert.doesNotMatch(markup,/V5 次数/);
     }
     console.log('PASS V5 quota display: integer and fractional weighted units');
+  }
+  {
+    reset();
+    const client=new GateApi('','A');
+    const input={...task('enhance'),operation:'img2img',parameters:{enhance:true,image:'original-image'}};
+    await client.request('/batches',{request_id:'enhance',items:[input]});await settle();
+    assert.equal(executeTasks[0].parameters.image,'prepared-image');
+    assert.equal((await jobs(client))[0].parameters.image,'original-image');
+    client.close();
+    reset();enhancePreparation=async()=>{throw Error('local decode failed');};
+    const failed=new GateApi('','A');
+    await failed.request('/batches',{request_id:'enhance-failed',items:[input]});await settle();
+    assert.deepEqual(names,[],'local preparation failure must not dispatch or charge');
+    assert.equal((await jobs(failed))[0].status,'failed');
+    assert.equal((await state(failed)).queue_paused,true);
+    failed.close();reset();
+    console.log('PASS Enhance prepares only the outgoing pixels and classifies local failures before dispatch');
   }
   // Accepted-but-held replies must not claim generation has started. A preview is evidence.
   let accept, stream;

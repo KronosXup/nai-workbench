@@ -18,7 +18,7 @@ const source = ts.createSourceFile(
 function actualModule(name) {
   const exports = {};
   const compiled = ts.transpileModule(fs.readFileSync(path.join(root, 'client', 'src', name), 'utf8'), {
-    compilerOptions: {target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS},
+    compilerOptions: {target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true},
   }).outputText;
   new Function('exports', 'require', compiled)(exports, name =>
     name.startsWith('.') ? actualModule(name.replace('./','') + '.ts') : require(name));
@@ -71,6 +71,30 @@ const {resolveVibeReference, makeVibeFile, VibeReferenceError, encodingFor} = ac
 const {readDirectorDraft, directorFromJob, directorTask, directorMatchesJob, directorSourceIssue, migrateDirectorDraft} = actualModule('director.ts');
 const {variationTasks} = actualModule('variations.ts');
 const {enhanceScales, enhanceDimensions, enhanceTask} = actualModule('enhance.ts');
+{
+  const {encode,decode} = require('fast-png');
+  const {prepareEnhanceImage} = actualModule('enhanceImage.ts');
+  const pixels = new Uint8Array(16*16*4);
+  for(let i=0;i<pixels.length;i+=4)pixels.set([10,30,50,254],i);
+  const signature='stealth_pngcomp';
+  for(let i=0;i<signature.length;i++)for(let bit=0;bit<8;bit++) {
+    const n=i*8+bit;pixels[4*((n%16)*16+Math.floor(n/16))+3]=254|((signature.charCodeAt(i)>>(7-bit))&1);
+  }
+  pixels[255*4+3]=1;pixels[254*4+3]=128;
+  const input=Buffer.from(encode({width:16,height:16,data:pixels,channels:4})).toString('base64');
+  const task={model:'nai-diffusion-5-full',parameters:{width:16,height:16,image:input}};
+  const read=async task=>decode(Buffer.from(await prepareEnhanceImage(task),'base64')).data;
+  const v5=await read(task),legacy=await read({...task,model:'nai-diffusion-4-5-full'});
+  assert.deepEqual([...v5.slice(255*4)],[10,30,50,0]);
+  assert.deepEqual([...v5.slice(254*4,255*4)],[10,30,50,128]);
+  assert.deepEqual([...legacy.slice(255*4)],[255,255,255,255]);
+  assert.deepEqual([...legacy.slice(254*4,255*4)],[132,142,152,255]);
+  assert.equal(task.parameters.image,input,'preparation preserves the queued source');
+  pixels[3]^=1;
+  const unrecognized=Buffer.from(encode({width:16,height:16,data:pixels,channels:4})).toString('base64');
+  assert.deepEqual(await read({...task,parameters:{...task.parameters,image:unrecognized}}),pixels);
+  console.log('PASS Enhance preserves source pixels, cleans recognized alpha metadata and applies model backgrounds');
+}
 const {withQuote} = actualModule('quote.ts');
 const gatePrice = units => ({source:'gate',units,unit_label:'积分',verified:false,message:'Gate fixture',cost_limit:{anlas:units,v5:0},encoding_cost_limit:{anlas:2,v5:0}});
 const {layoutCanvasItems, fitCanvasRect, zoomCanvasAt, canvasVisibleRect, canvasRectsIntersect} = actualModule('outputCanvasGeometry.ts');
@@ -975,6 +999,7 @@ checks.push(['Enhance uses the selected pixels with current settings and confirm
   const before=structuredClone(base),task=enhanceTask(base,image,settings);
   assert.equal(task.prompt,'abstract mountains, -2::upscaled, blurry::,');assert.equal(task.parameters.image,image.data);
   assert.equal(task.parameters.enhance,true);
+  assert.equal(task.parameters.straight_alpha,true);
   assert.equal(enhanceTask({...base,prompt:'scene text: HELLO'},image,settings).prompt,'scene, -2::upscaled, blurry::, text: HELLO');
   assert.equal(enhanceTask({...base,prompt:'text:: scene'},image,settings).prompt,'text:: scene, -2::upscaled, blurry::,');
   assert.equal(enhanceTask({...base,prompt:task.prompt},image,settings).prompt,task.prompt);
@@ -1089,6 +1114,12 @@ for (const [name, boundary, argument] of [
     assert.equal(h.state.draft.prompt, 'Owner B draft');
   }]);
 }
+
+checks.push(['Normal requests clear reused Enhance-only flags', () => {
+  const h=quoteHarness();h.state.draft.parameters.enhance=true;h.state.draft.parameters.upscaled_enhance=true;
+  const next=h.fn('taskFor')();
+  assert.ok(!('enhance' in next.parameters));assert.ok(!('upscaled_enhance' in next.parameters));
+}]);
 
 let failed = 0;
 for (const [name, run] of checks) {

@@ -36,6 +36,8 @@ export function enhanceTask(base: Task, image: Pick<ImportedImage, 'data' | 'wid
     strength: settings.strength, noise: settings.noise, n_samples: 1, seed: -1, enhance: true };
   for (const key of ['mask', 'img2img', 'upscale', 'upscaled_enhance', 'canvas_project_id']) delete parameters[key];
   if (settings.scale === 'max') parameters.upscaled_enhance = true;
+  if (base.model.startsWith('nai-diffusion-5')) parameters.straight_alpha = true;
+  else delete parameters.straight_alpha;
   let prompt = base.prompt;
   if (settings.scale !== 'max' && /nai-diffusion-(4-5|5)-/.test(base.model) && !prompt.includes('upscaled, blurry')) {
     const index = prompt.search(/(?:^|\s|[,.:[\]{}、。])text:(?!:)/i);
