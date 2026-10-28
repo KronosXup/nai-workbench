@@ -12,7 +12,13 @@ The runtime set follows the installed dependency graph rooted at the direct `dep
 |---|---:|---|---|---|
 | `@huggingface/tokenizers` | `0.1.3 / 0.1.3` | Apache-2.0 | [Source](https://github.com/huggingface/tokenizers.js) | [text](third_party_licenses/npm/@huggingface/tokenizers/0.1.3/LICENSE) |
 | `@noble/hashes` | `1.8.0 / 1.8.0` | MIT | [Source](https://github.com/paulmillr/noble-hashes) | [text](third_party_licenses/npm/@noble/hashes/1.8.0/LICENSE) |
+| `fast-png` | `8.0.0 / 8.0.0` | MIT | [Source](https://github.com/image-js/fast-png) | [text](third_party_licenses/npm/fast-png/8.0.0/LICENSE) |
+| `fflate` | `0.8.3 / 0.8.3` | MIT | [Source](https://github.com/101arrowz/fflate) | [text](third_party_licenses/npm/fflate/0.8.3/LICENSE) |
+| `glur` | `2.0.0 / 2.0.0` | MIT | [Source](https://github.com/andr83/glur/issues) | [text](third_party_licenses/npm/glur/2.0.0/LICENSE) |
+| `iobuffer` | `6.0.1 / 6.0.1` | MIT | [Source](https://github.com/image-js/iobuffer) | [text](third_party_licenses/npm/iobuffer/6.0.1/LICENSE) |
 | `lucide-react` | `0.468.0 / 0.468.0` | ISC | [Source](https://github.com/lucide-icons/lucide) | [text](third_party_licenses/npm/lucide-react/0.468.0/LICENSE) |
+| `multimath` | `3.0.0 / 3.0.0` | MIT | [Source](https://registry.npmjs.org/multimath/-/multimath-3.0.0.tgz) | [text](third_party_licenses/npm/multimath/3.0.0/LICENSE) |
+| `pica` | `10.0.3 / 10.0.3` | MIT | [Source](https://github.com/nodeca/pica) | [text](third_party_licenses/npm/pica/10.0.3/LICENSE) |
 | `react` | `19.3.0 / 19.3.0` | MIT | [Source](https://github.com/react/react) | [text](third_party_licenses/npm/react/19.3.0/LICENSE) |
 | `react-dom` | `19.3.0 / 19.3.0` | MIT | [Source](https://github.com/react/react) | [text](third_party_licenses/npm/react-dom/19.3.0/LICENSE) |
 | `scheduler` | `0.28.0 / 0.28.0` | MIT | [Source](https://github.com/react/react) | [text](third_party_licenses/npm/scheduler/0.28.0/LICENSE) |

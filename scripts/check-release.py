@@ -14,6 +14,8 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_TESTS = (
     "server/tests/test_gate_bridge.py",
+    "server/tests/test_gate_quotes.py",
+    "server/tests/test_enhance_receipts.py",
     "server/tests/test_inpaint.py",
     "server/tests/test_bridge_security.py",
     "server/tests/test_task_validation.py",

@@ -35,6 +35,7 @@
 !server/app/__init__.py
 !server/app/gate_bridge.py
 !server/app/adapters.py
+!server/app/enhance.py
 !server/app/inpaint.py
 !server/app/config.py
 !server/app/model_policy.py

@@ -2,7 +2,13 @@
   "files": [
     "third_party_licenses/npm/@huggingface/tokenizers/0.1.3/LICENSE",
     "third_party_licenses/npm/@noble/hashes/1.8.0/LICENSE",
+    "third_party_licenses/npm/fast-png/8.0.0/LICENSE",
+    "third_party_licenses/npm/fflate/0.8.3/LICENSE",
+    "third_party_licenses/npm/glur/2.0.0/LICENSE",
+    "third_party_licenses/npm/iobuffer/6.0.1/LICENSE",
     "third_party_licenses/npm/lucide-react/0.468.0/LICENSE",
+    "third_party_licenses/npm/multimath/3.0.0/LICENSE",
+    "third_party_licenses/npm/pica/10.0.3/LICENSE",
     "third_party_licenses/npm/react-dom/19.3.0/LICENSE",
     "third_party_licenses/npm/react/19.3.0/LICENSE",
     "third_party_licenses/npm/scheduler/0.28.0/LICENSE",
