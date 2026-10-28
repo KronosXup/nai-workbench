@@ -98,6 +98,6 @@ export default function GateQueueStatus({ monitor }: { monitor: Monitor }) {
     return <span>排队状态暂不可用</span>;
   if (!snapshot) return <span>读取排队状态…</span>;
   const cooldown = Math.max(0, Math.ceil(snapshot.image_cooldown_remaining - age));
-  return <span>全站：占用 {snapshot.global.active}/{snapshot.global.concurrency} · 排队 {snapshot.global.waiting}
+  return <span>全站未完成任务：{snapshot.global.active + snapshot.global.waiting} · 图片并发上限：{snapshot.global.concurrency}
     {cooldown > 0 && <> · 冷却约 {cooldown} 秒</>}</span>;
 }

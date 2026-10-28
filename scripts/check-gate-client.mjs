@@ -56,7 +56,7 @@ function reset(handler=()=>events(final())) {
 }
 try {
   {
-    const api={},counts={active:0,waiting:0,concurrency:1};
+    const api={},counts={active:2,waiting:1,concurrency:1};
     const display=(remaining,serverOffset=0,age=0)=>renderToStaticMarkup(require('react').createElement(GateQueueStatus,{monitor:{
       api,snapshot:{global:counts,image_cooldown_remaining:remaining,sampled_at:now/1000+serverOffset},
       receivedAt:performance.now()-age*1000,
@@ -69,10 +69,10 @@ try {
     assert.match(display(3,1,2.1),/冷却约 1 秒/,'keep the final real second visible');
     assert.doesNotMatch(display(3,1,3.1),/冷却/);
     assert.match(display(0,0,15.1),/排队状态暂不可用/,'unchanged snapshots age out on the local clock');
-    assert.match(display(0),/全站：占用 0\/1 · 排队 0/);
+    assert.match(display(0),/全站未完成任务：3 · 图片并发上限：1/);
     counts.concurrency=0;
     assert.equal(validGateQueueSnapshot({global:counts,image_cooldown_remaining:0,sampled_at:now/1000}),true);
-    assert.match(display(0),/全站：占用 0\/0 · 排队 0/);
+    assert.match(display(0),/全站未完成任务：3 · 图片并发上限：0/);
     for(const concurrency of [-1, .5, NaN]) assert.equal(validGateQueueSnapshot({global:{...counts,concurrency},image_cooldown_remaining:0,sampled_at:now/1000}),false);
     console.log('PASS queue display: clock skew, real countdown, local expiry and compact copy');
   }
