@@ -27,6 +27,28 @@ function actualModule(name) {
 const {configurationIssueFor, effectiveModelForOperation, usesGenerationSettings} = actualModule('taskValidation.ts');
 const {ApiError} = actualModule('api.ts');
 const {generationParameters, defaultNoiseSchedule, modelGenerationDefaults, samplersFor} = actualModule('modelSettings.ts');
+{
+  const {newDraft} = actualModule('types.ts');
+  const {composePrompts, ucOptions} = actualModule('promptPresets.ts');
+  const draft = newDraft();
+  draft.model = 'nai-diffusion-5-full'; draft.negative = 'keep my negative';
+  draft.parameters.steps = 28; draft.parameters.sampler = 'k_dpmpp_2m'; draft.parameters.cfg_rescale = .7;
+  draft.parameters.character_prompts = [{prompt:'hero',negative_prompt:'no hat',x:.5,y:.5}];
+  const before = structuredClone(draft);
+  const high = generationParameters(draft.model, draft.parameters);
+  const mediumDraft = {...draft,model:'nai-diffusion-5-full-medium'};
+  const medium = generationParameters(mediumDraft.model, draft.parameters);
+  assert.equal(medium.steps,14); assert.equal(medium.sampler,'k_euler_ancestral');
+  assert.ok(!('cfg_rescale' in medium)); assert.equal(medium.character_prompts[0].negative_prompt,'');
+  assert.equal(composePrompts(mediumDraft,'landscape',mediumDraft).negative,ucOptions(mediumDraft.model).heavy);
+  assert.equal(composePrompts(mediumDraft,'landscape',mediumDraft).prompt,composePrompts(draft,'landscape',draft).prompt);
+  assert.deepEqual(draft,before,'Effort switches must preserve High settings and negative text');
+  assert.equal(configurationIssueFor({...mediumDraft,operation:'generate'},[
+    {id:mediumDraft.model,max_characters:32,precise_reference:false,vibe_transfer:false}
+  ]),undefined,'Stored High sampler must not block the fixed Medium request');
+  assert.deepEqual(generationParameters(draft.model,draft.parameters),high);
+  console.log('PASS Medium fixed request settings preserve the High draft and quality tags');
+}
 for (const model of ['nai-diffusion-3', 'nai-diffusion-furry-3', 'nai-diffusion-4-full', 'nai-diffusion-4-5-full', 'nai-diffusion-5-full']) {
   assert.ok(samplersFor(model).some(([id]) => id === 'k_dpmpp_2m_sde'));
   const sent = generationParameters(model, {sampler:'k_dpmpp_2m_sde', noise_schedule:'karras'});

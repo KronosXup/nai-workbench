@@ -1,12 +1,16 @@
 import type { Parameters } from './types';
 
+export const V5_MEDIUM = 'nai-diffusion-5-full-medium';
+export const isMediumModel = (model: string) => model === V5_MEDIUM || model === `${V5_MEDIUM}-inpainting`;
+export const effortFamily = (model: string) => isMediumModel(model) ? model.replace('-medium', '') : model;
+
 export const samplerOptions = [
   ['k_euler_ancestral', 'Euler Ancestral'], ['k_euler', 'Euler'],
   ['k_dpmpp_2s_ancestral', 'DPM++ 2S Ancestral'], ['k_dpmpp_2m_sde', 'DPM++ 2M SDE'],
   ['k_dpmpp_2m', 'DPM++ 2M'], ['k_dpmpp_sde', 'DPM++ SDE'], ['ddim_v3', 'DDIM'],
 ];
-export const samplersFor = (model: string) => samplerOptions.filter(([id]) =>
-  !model.startsWith('nai-diffusion-5') || id !== 'ddim_v3');
+export const samplersFor = (model: string) => samplerOptions.filter(([id]) => isMediumModel(model)
+  ? id === 'k_euler_ancestral' : !model.startsWith('nai-diffusion-5') || id !== 'ddim_v3');
 
 export function defaultNoiseSchedule(sampler: string) {
   if (sampler === 'k_dpmpp_2m' || sampler === 'k_dpm_2') return 'exponential';
@@ -30,6 +34,12 @@ export function varietyScale(width: number, height: number) {
 // Imported values stay in the draft, but unsupported values must not travel into requests.
 export function generationParameters(model: string, input: Parameters): Parameters {
   const p = structuredClone(input);
+  if (isMediumModel(model)) {
+    p.steps = 14;
+    p.sampler = 'k_euler_ancestral';
+    delete p.cfg_rescale;
+    p.character_prompts = p.character_prompts.map(character => ({ ...character, negative_prompt: '' }));
+  }
   if (!model.endsWith('-3')) { delete p.sm; delete p.sm_dyn; delete p.dynamic_thresholding; delete p.legacy_v3_extend; }
   if (model.startsWith('nai-diffusion-5')) {
     delete p.skip_cfg_above_sigma;

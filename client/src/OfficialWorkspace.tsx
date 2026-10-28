@@ -23,7 +23,7 @@ import { labels } from "./types";
 import { hasTransparentBackground, setTransparentBackground } from "./promptTags";
 import type { ConfigurationIssue, QuoteError } from "./taskValidation";
 import { effectiveModelForOperation, usesGenerationSettings } from "./taskValidation";
-import { samplersFor, defaultNoiseSchedule, noiseSchedulesFor } from "./modelSettings";
+import { samplersFor, defaultNoiseSchedule, noiseSchedulesFor, V5_MEDIUM, isMediumModel, effortFamily } from "./modelSettings";
 import { ucOptions, presetLabels, hasFurryTag, removeFurryTag, mapUcPreset } from "./promptPresets";
 import PromptChunks from "./PromptChunks";
 import AdvancedSettings from "./AdvancedSettings";
@@ -57,6 +57,8 @@ type Props = {
     unit_label: string;
     verified: boolean;
     message: string;
+    effective_model?: string;
+    requested_model?: string;
   } | null;
   quoteError?: QuoteError | null;
   configurationIssue?: ConfigurationIssue;
@@ -127,7 +129,7 @@ const resolutionPresets: Record<string, {label:string; sizes:number[][]}> = {
   small:{label:"小图",sizes:[[512,768],[640,640],[768,512]]},
 };
 export default function OfficialWorkspace(p: Props) {
-  const displayModels = [...p.models].sort((a, b) =>
+  const displayModels = p.models.filter(model => !isMediumModel(model.id)).sort((a, b) =>
     (modelDisplayOrder.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
     (modelDisplayOrder.get(b.id) ?? Number.MAX_SAFE_INTEGER));
   const [promptTab, setPromptTab] = useState<"positive" | "negative">("positive");
@@ -197,15 +199,18 @@ export default function OfficialWorkspace(p: Props) {
     : [[params.width, params.height], [params.height, params.width]];
   const generation = Boolean(p.enhance) || usesGenerationSettings(p.draft.operation);
   const effectiveModel = effectiveModelForOperation(p.draft.model, p.enhance ? 'img2img' : p.draft.operation);
+  const medium = isMediumModel(effectiveModel);
+  const modelFamily = effortFamily(p.draft.model);
   const samplers = samplersFor(effectiveModel);
   const furryMode = p.draft.model.endsWith('-3')
     ? p.draft.model.includes('furry')
     : Boolean(p.draft.furryMode || hasFurryTag(p.draft.prompt));
   // Gate's tag route accepts a model, but not V5's extra furryv5 type field.
   const tagModel = furryMode && !p.draft.model.startsWith('nai-diffusion-5')
-    ? 'nai-diffusion-furry-3' : p.draft.model;
+    ? 'nai-diffusion-furry-3' : modelFamily;
   const tagSuggestionsUnavailable = p.draft.model.startsWith('nai-diffusion-5') && furryMode;
   function selectModel(model: string) {
+    if (model === 'nai-diffusion-5-full' && medium) model = V5_MEDIUM;
     const nextEffectiveModel = effectiveModelForOperation(model, p.draft.operation);
     const sampler = samplersFor(nextEffectiveModel).some(([id]) => id === params.sampler)
       ? params.sampler : 'k_euler_ancestral';
@@ -314,6 +319,7 @@ export default function OfficialWorkspace(p: Props) {
     min: number,
     max: number,
     step = 1,
+    disabled = false,
   ) => (
     <input
       aria-label={label}
@@ -322,6 +328,7 @@ export default function OfficialWorkspace(p: Props) {
       min={min}
       max={max}
       step={step}
+      disabled={disabled}
       onChange={(e) => {
         if (e.target.value !== "" && Number.isFinite(+e.target.value))
           action(+e.target.value);
@@ -365,7 +372,7 @@ export default function OfficialWorkspace(p: Props) {
               <NaiSelect
                 ariaLabel="模型"
                 className="nai-model-select"
-                value={p.draft.model}
+                value={modelFamily}
                 options={modelOptions}
                 onChange={selectModel}
                 menuWidth={300}
@@ -378,9 +385,19 @@ export default function OfficialWorkspace(p: Props) {
               </button>
             </div>
           </div>
+          {generation && modelFamily === 'nai-diffusion-5-full' && <>
+            <div className="nai-effort-row" role="group" aria-label="Effort">
+              <span>Effort</span>
+              <button type="button" aria-pressed={medium} disabled={p.busy || !p.models.some(model => model.id === V5_MEDIUM)}
+                title="14 步、Euler Ancestral、固定负面预设" onClick={() => p.patch({model: V5_MEDIUM})}>Medium</button>
+              <button type="button" aria-pressed={!medium} disabled={p.busy}
+                onClick={() => p.patch({model: 'nai-diffusion-5-full'})}>High</button>
+            </div>
+            {!medium && p.quote?.requested_model === p.draft.model && p.quote?.effective_model === V5_MEDIUM && <small className="nai-effort-note">Gate 当前自动使用 Medium</small>}
+          </>}
           <div className="nai-prompt-card">
-            {p.draft.promptLayout === "tabs" && <div className="nai-prompt-tabs"><button aria-pressed={promptTab === "positive"} onClick={()=>setPromptTab("positive")}>正面</button><button aria-pressed={promptTab === "negative"} onClick={()=>setPromptTab("negative")}>负面</button></div>}
-            <section className="nai-prompt-section" hidden={p.draft.promptLayout === "tabs" && promptTab !== "positive"}>
+            {!medium && p.draft.promptLayout === "tabs" && <div className="nai-prompt-tabs"><button aria-pressed={promptTab === "positive"} onClick={()=>setPromptTab("positive")}>正面</button><button aria-pressed={promptTab === "negative"} onClick={()=>setPromptTab("negative")}>负面</button></div>}
+            <section className="nai-prompt-section" hidden={!medium && p.draft.promptLayout === "tabs" && promptTab !== "positive"}>
               <div className="nai-card-heading">
                 <b>{params.character_prompts.length ? "基础提示词" : "提示词"}</b>
                 <div>
@@ -419,7 +436,7 @@ export default function OfficialWorkspace(p: Props) {
               </div>
               <TokenMeter compact model={effectiveModel} label="正面" text={composedPrompt.prompt} characterTexts={enabledCharacters.map(character => character.prompt)} />
             </section>
-            <section className="nai-negative-section" hidden={p.draft.promptLayout === "tabs" && promptTab !== "negative"}>
+            <section className="nai-negative-section" hidden={medium || (p.draft.promptLayout === "tabs" && promptTab !== "negative")}>
               <div className="nai-card-heading">
                 <b>负面提示词</b>
                 <div>
@@ -587,10 +604,12 @@ export default function OfficialWorkspace(p: Props) {
               步数
               {number(
                 "步数",
-                params.steps,
+                medium ? 14 : params.steps,
                 (n) => p.setParam("steps", n),
                 1,
                 100,
+                1,
+                medium,
               )}
             </label>
             <label>
@@ -628,7 +647,8 @@ export default function OfficialWorkspace(p: Props) {
               <NaiSelect
                 ariaLabel="采样器"
                 className="nai-sampler-select"
-                value={params.sampler}
+                value={medium ? 'k_euler_ancestral' : params.sampler}
+                disabled={medium}
                 options={[
                   ...(!samplers.some(([id]) => id === params.sampler) ? [{ value: params.sampler, label: `${params.sampler}（请更换）`, disabled: true }] : []),
                   ...samplers.map(([id, name]) => ({ value: id, label: name })),

@@ -7,7 +7,7 @@ export type ImageTokenizerSpec = { kind: Kind; limit: number; name: string };
 // The official image client uses Qwen for V5, T5 for V4/4.5, and CLIP for V3.
 // Keep the vocabulary on this origin: counting a draft must never send it to a service.
 export function imageTokenizerSpec(model: string): ImageTokenizerSpec | null {
-  if (model === "nai-diffusion-5-full") return { kind: "qwen", limit: 1471, name: "Qwen" };
+  if (model === "nai-diffusion-5-full" || model === "nai-diffusion-5-full-medium") return { kind: "qwen", limit: 1471, name: "Qwen" };
   if (model === "nai-diffusion-5-curated") return { kind: "qwen", limit: 703, name: "Qwen" };
   if (model.startsWith("nai-diffusion-4")) return { kind: "t5", limit: 512, name: "T5" };
   if (model === "nai-diffusion-3" || model === "nai-diffusion-furry-3")

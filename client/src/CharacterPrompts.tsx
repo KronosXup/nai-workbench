@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import TagInput, { type TagSuggestion } from "./TagInput";
 import TokenMeter from "./TokenMeter";
+import { isMediumModel } from './modelSettings';
 import {
   createCharacterPrompt,
   enabledCharacterCount,
@@ -180,6 +181,7 @@ function CharacterCard({
   registerNameInput: (id: string, node: HTMLInputElement | null) => void;
 }) {
   const [tab, setTab] = useState<"positive" | "negative">("positive");
+  const medium = isMediumModel(model);
   const id = character.ui_id ?? `legacy-${index}`;
   const enabled = character.enabled !== false;
   const summary = character.prompt.trim() || "尚无正面提示词";
@@ -234,11 +236,11 @@ function CharacterCard({
       ) : (
         <div className="cp-card-body">
           {!enabled && <p className="cp-disabled-note">此角色已停用，不参与本次生成。</p>}
-          <div className="cp-tabs" role="group" aria-label={`角色 ${index + 1} 提示词类型`}>
+          {!medium && <div className="cp-tabs" role="group" aria-label={`角色 ${index + 1} 提示词类型`}>
             <button type="button" aria-pressed={tab === "positive"} onClick={() => setTab("positive")}>正面</button>
             <button type="button" aria-pressed={tab === "negative"} onClick={() => setTab("negative")}>负面</button>
-          </div>
-          {tab === "positive" ? (
+          </div>}
+          {medium || tab === "positive" ? (
             <>
               <TagInput label={`角色 ${index + 1} 正面提示词`} value={character.prompt}
                 onChange={prompt => patch({ prompt })} model={model} suggest={onSuggestTags}

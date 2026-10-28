@@ -29,7 +29,7 @@ export function parseMetadata(values: Record<string, unknown>): ImageMetadata | 
   else if (/NovelAI Diffusion V?4\.5/i.test(source)) result.model=/curated/i.test(source)?'nai-diffusion-4-5-curated':'nai-diffusion-4-5-full';
   else if (/NovelAI Diffusion V?4/i.test(source)) result.model=/curated/i.test(source)?'nai-diffusion-4-curated-preview':'nai-diffusion-4-full';
   // Source is the only model hint in some official PNGs; preserve its variant.
-  else if (/NovelAI Diffusion V?5/i.test(source)) result.model=/curated/i.test(source)?'nai-diffusion-5-curated':'nai-diffusion-5-full';
+  else if (/NovelAI Diffusion V?5/i.test(source)) result.model=/curated/i.test(source)?'nai-diffusion-5-curated':/medium/i.test(source)?'nai-diffusion-5-full-medium':'nai-diffusion-5-full';
   else if (/NovelAI Diffusion (?:Furry.*V?3|V?3.*Furry)/i.test(source)) result.model='nai-diffusion-furry-3';
   else if (/NovelAI Diffusion (?:Anime\s*)?V?3/i.test(source)) result.model='nai-diffusion-3';
   // PNG metadata stores the canvas-scaled API threshold; the editor uses the

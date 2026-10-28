@@ -29,6 +29,7 @@ MODELS = [
     dict(id='nai-diffusion-4-5-full', name='NAI Diffusion V4.5 Full', max_characters=6, precise_reference=True, vibe_transfer=True),
     dict(id='nai-diffusion-4-5-curated', name='NAI Diffusion V4.5 Curated', max_characters=6, precise_reference=True, vibe_transfer=True),
     dict(id='nai-diffusion-5-full', name='NAI Diffusion V5 Full', max_characters=32, precise_reference=False, vibe_transfer=False),
+    dict(id='nai-diffusion-5-full-medium', name='NAI Diffusion V5 Full Medium', max_characters=32, precise_reference=False, vibe_transfer=False),
     dict(id='nai-diffusion-5-curated', name='NAI Diffusion V5 Curated', max_characters=32, precise_reference=False, vibe_transfer=False),
     dict(id='nai-diffusion-4-full', name='NAI Diffusion V4 Full', max_characters=6, precise_reference=False, vibe_transfer=True),
     dict(id='nai-diffusion-4-curated-preview', name='NAI Diffusion V4 Curated', max_characters=6, precise_reference=False, vibe_transfer=True),

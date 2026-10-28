@@ -8,6 +8,7 @@ const ts=require('typescript');
 const source=fs.readFileSync(new URL('../client/src/imageTokenizer.ts',import.meta.url),'utf8');
 const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
 const exports={}; new Function('require','exports',code)(require,exports);
+assert.deepEqual(exports.imageTokenizerSpec('nai-diffusion-5-full-medium'),exports.imageTokenizerSpec('nai-diffusion-5-full'));
 const emphasisSource=fs.readFileSync(new URL('../client/src/promptEmphasis.ts',import.meta.url),'utf8');
 const emphasisCode=ts.transpileModule(emphasisSource,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
 const emphasisExports={};new Function('exports',emphasisCode)(emphasisExports);

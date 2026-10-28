@@ -3,6 +3,7 @@
 // Presets are composed at request time; switching them never edits the user's text.
 import { joinPrompt } from './types';
 import type { Draft, Strings } from './types';
+import { effortFamily, isMediumModel } from './modelSettings';
 
 const quality: Record<string, string> = {
   'nai-diffusion-5-full': 'very aesthetic, masterpiece, no text',
@@ -60,7 +61,7 @@ export function removeFurryTag(prompt: string) {
 }
 export function composePrompts(draft: Draft, prompt: string, strings: Strings) {
   const q = draft.qualityPreset === 'light' && draft.model.startsWith('nai-diffusion-5')
-    ? 'very aesthetic, amazing quality, no text' : draft.qualityPreset && draft.qualityPreset !== 'none' ? quality[draft.model] : '';
+    ? 'very aesthetic, amazing quality, no text' : draft.qualityPreset && draft.qualityPreset !== 'none' ? quality[effortFamily(draft.model)] : '';
   const negative = ucOptions(draft.model)[draft.ucPreset ?? 'none'] ?? '';
   const positive=joinPrompt(strings.artist, prompt, strings.quality, q ?? '');
   // V3's default lowres fallback applies only when the user did not supply UC.
@@ -68,7 +69,7 @@ export function composePrompts(draft: Draft, prompt: string, strings: Strings) {
     && (draft.ucPreset ?? 'none') === 'none' && strings.negative.trim() ? '' : negative;
   return {
     prompt:draft.furryMode && !draft.model.endsWith('-3') && !hasFurryTag(positive) ? `fur dataset, ${positive}` : positive,
-    negative:joinPrompt(
+    negative:isMediumModel(draft.model) ? ucOptions(draft.model).heavy : joinPrompt(
       !draft.model.includes('curated') && draft.ucPreset && draft.ucPreset !== 'none' && negative && !positive.toLowerCase().includes('nsfw') ? 'nsfw' : '',
       defaultNegative, strings.negative),
   };

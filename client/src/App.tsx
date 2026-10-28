@@ -68,7 +68,7 @@ import { directorFromJob, directorMatchesJob, directorSourceIssue, migrateDirect
 import type { DirectorDraft, DirectorSource } from "./director";
 import WorkspaceHeader, { legacyFreeLabel } from "./WorkspaceHeader";
 import { composePrompts } from "./promptPresets";
-import { generationParameters, modelGenerationDefaults } from "./modelSettings";
+import { generationParameters, modelGenerationDefaults, effortFamily } from "./modelSettings";
 import TokenMeter from "./TokenMeter";
 import type { TagSuggestion } from "./TagInput";
 
@@ -129,6 +129,13 @@ const fallbackModels: Capabilities["models"] = [
   {
     id: "nai-diffusion-5-full",
     name: "NAI Diffusion V5 Full",
+    max_characters: 32,
+    precise_reference: false,
+    vibe_transfer: false,
+  },
+  {
+    id: "nai-diffusion-5-full-medium",
+    name: "NAI Diffusion V5 Full Medium",
     max_characters: 32,
     precise_reference: false,
     vibe_transfer: false,
@@ -296,7 +303,7 @@ export default function App() {
   const [api, setApi] = useState<GateApi | null>(null);
   const suggestTags = useCallback(async (model: string, fragment: string): Promise<TagSuggestion[]> => {
     if (!api) return [];
-    const result = await api.request<{tags:TagSuggestion[]}>('/suggest-tags',{model,prompt:fragment});
+    const result = await api.request<{tags:TagSuggestion[]}>('/suggest-tags',{model:effortFamily(model),prompt:fragment});
     return result.tags;
   }, [api]);
   const apiRef = useRef<GateApi | null>(null);
@@ -1143,7 +1150,7 @@ export default function App() {
       delete task.parameters.vibe_source_images;
       delete task.parameters.vibe_source_files;
       const q = await api.request<ImageQuote>("/quote", task);
-      if (seq === generation.current && version === quoteVersion.current) { setQuote(q); setQuoteError(null); }
+      if (seq === generation.current && version === quoteVersion.current) { setQuote({...q, requested_model:task.model}); setQuoteError(null); }
     } catch (e) {
       if (seq === generation.current && version === quoteVersion.current) { setQuote(null); setQuoteError({ message: errorText(e), connection: e instanceof ApiError && [401, 403].includes(e.status), retryable: !(e instanceof ApiError) || e.status >= 500 || e.status === 408 || e.status === 429 }); if (!quiet) fail(e); }
     }

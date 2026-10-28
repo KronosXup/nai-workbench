@@ -101,6 +101,11 @@
 }
 .nai-shell .nai-scroll { flex: 1; min-height: 0; overflow: auto; padding: 12px; scrollbar-gutter: stable; }
 .nai-shell .nai-model-row { display: flex; align-items: center; gap: 8px; margin-bottom: 18px; }
+.nai-shell .nai-effort-row { display: flex; align-items: center; width: fit-content; gap: 4px; margin: -6px 0 16px; padding: 4px 4px 4px 12px; border: 1px solid var(--nai-line); border-radius: 8px; }
+.nai-shell .nai-effort-row > span { margin-right: 8px; font-size: 14px; }
+.nai-shell .nai-effort-row > button { min-width: 68px; height: 28px; min-height: 28px; padding: 4px 12px; background: transparent; color: var(--nai-muted); font-size: 14px; font-weight: 600; }
+.nai-shell .nai-effort-row > button[aria-pressed="true"] { background: var(--nai-control); color: var(--nai-text); }
+.nai-shell .nai-effort-note { display: block; margin: -8px 0 14px; color: var(--nai-muted); font-size: 12px; }
 /* Keep the 28px controls inset within matching 36px frames, independent of generic buttons. */
 .nai-shell .nai-model-row > label,
 .nai-shell .nai-model-row > div { display: inline-flex; height: 36px; min-width: 0; align-items: center; gap: 8px; padding: 4px 4px 4px 12px; border: 1px solid #22253f; border-radius: 8px; }
