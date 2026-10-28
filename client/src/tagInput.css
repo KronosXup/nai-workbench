@@ -1,0 +1,14 @@
+.nai-prompt-editor { position: relative; }
+.nai-prompt-highlights {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+  pointer-events: none;
+  color: transparent;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  box-sizing: border-box;
+}
+.nai-prompt-highlights span { border-radius: 3px; }
+.nai-prompt-editor > textarea.nai-prompt-input { position: relative; background: transparent; }

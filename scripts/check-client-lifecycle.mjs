@@ -48,9 +48,11 @@ const {newDraft, defaultParameters, joinPrompt, uuid} = actualModule('types.ts')
 const {resolveVibeReference, makeVibeFile, VibeReferenceError, encodingFor} = actualModule('vibeFiles.ts');
 const {readDirectorDraft, directorFromJob, directorTask, directorMatchesJob, directorSourceIssue, migrateDirectorDraft} = actualModule('director.ts');
 const {variationTasks} = actualModule('variations.ts');
+const {enhanceScales, enhanceDimensions, enhanceTask} = actualModule('enhance.ts');
+const {layoutCanvasItems, fitCanvasRect, zoomCanvasAt, canvasVisibleRect, canvasRectsIntersect} = actualModule('outputCanvasGeometry.ts');
 
 function actualFunction(name, scope) {
-  scope = {effectiveModelForOperation, ...scope};
+  scope = {effectiveModelForOperation, activeEnhance: null, enhanceTask, ...scope};
   let expression;
   function visit(node) {
     if (ts.isFunctionDeclaration(node) && node.name?.text === name) {
@@ -309,6 +311,8 @@ const checks = [
   }],
   ['Logout during pending work clears busy for the next login', async () => {
     const state = {busy:true, user:{id:'A'}, draft:newDraft(), loaded:true, token:'old-key'};
+    const session = new Map([['nai-wb-token','old-key']]);
+    const remembered = new Map([['nai-wb-remembered-token','old-key']]);
     const api = {pending:()=>true, close:()=>{state.closed=true;}};
     const noop = () => {};
     const scope = {
@@ -325,10 +329,12 @@ const checks = [
       setSaveIssue:noop, setQueuePaused:noop, setQueueEncoding:noop, setEncodingPaused:noop,
       setEncodingRetryAt:noop, setEncodingWaitReason:noop, setBlankCanvas:noop,
       setPendingMaskDraft:noop, setShowMask:noop, setCanvasInput:noop, setPixelInput:noop,
-      setSelectedId:noop, setQuote:noop, setQuoteError:noop, setLoginToken:noop,
+      setSelectedId:noop, setQuote:noop, setQuoteError:noop, setLoginToken:noop, setRememberDevice:noop,
       chooseResult:noop,
       setNotice:noop, notify:noop, fail:error=>{throw error;},
-      sessionStorage:{removeItem:noop,setItem:noop}, localStorage:{removeItem:noop},
+      sessionStorage:{getItem:key=>session.get(key)??null,removeItem:key=>session.delete(key),setItem:(key,value)=>session.set(key,value)},
+      localStorage:{getItem:key=>remembered.get(key)??null,removeItem:key=>remembered.delete(key),setItem:(key,value)=>remembered.set(key,value)},
+      ApiError,
       location:{origin:'https://fixture'}, fallbackModels:[], verifyGateHealth:async()=>{},
       canvasProjectScope:()=> 'scope-B', restoreDraftForSession:actualFunction('restoreDraftForSession'),
       migrateDirectorDraft,
@@ -342,6 +348,8 @@ const checks = [
     assert.equal(state.closed,true);
     assert.equal(state.busy,false,'confirmed logout must clear the abandoned submission spinner');
     assert.equal(scope.submitting.current,false,'a new session must not inherit the old submit guard');
+    assert.equal(session.has('nai-wb-token'),false,'logout clears the active tab credential');
+    assert.equal(remembered.has('nai-wb-remembered-token'),false,'logout clears the matching remembered credential');
     await actualFunction('connect',scope)('new-key');
     assert.equal(state.user.id,'B');
     assert.equal(state.busy,false,'re-login remains able to submit after pending work was abandoned');
@@ -931,6 +939,102 @@ const checks = [
     }
   }],
 ];
+
+checks.push(['Enhance uses the selected pixels with current settings and confirms before any submission', async () => {
+  assert.deepEqual(enhanceDimensions(832,1216,1.5),{width:1280,height:1856});
+  assert.ok(enhanceScales(832,1216,'nai-diffusion-5-full').find(item=>item.value==='max')?.disabled);
+  assert.ok(!enhanceScales(832,1216,'nai-diffusion-4-5-full').some(item=>item.value==='max'));
+  const image={data:'geometric-fixture',width:832,height:1216};
+  const settings={scale:1.5,magnitude:3,strength:.5,noise:0,advanced:false};
+  const base={request_id:'enhance-test',operation:'img2img',model:'nai-diffusion-5-full',prompt:'abstract mountains',negative_prompt:'text',
+    label:'test',parameters:{...structuredClone(defaultParameters),image:'old image',mask:'old mask',img2img:{strength:1},seed:111}};
+  const before=structuredClone(base),task=enhanceTask(base,image,settings);
+  assert.equal(task.prompt,'abstract mountains');assert.equal(task.parameters.image,image.data);
+  assert.deepEqual([task.parameters.width,task.parameters.height,task.parameters.seed,task.parameters.n_samples],[1280,1856,-1,1]);
+  assert.ok(!('mask' in task.parameters));assert.ok(!('img2img' in task.parameters));assert.deepEqual(base,before);
+  assert.throws(()=>enhanceTask(base,image,{...settings,scale:'max'}),/不支持/);
+  function harness() {
+    const captured={rowId:'selected',owner:'owner-a',image,settings};
+    const state={generation:1,owner:'owner-a',page:'draw',selected:'selected',draft:newDraft(),enhance:captured,
+      quotes:[],confirmations:[],submitted:[],failures:[],accept:true,busy:false,error:null};
+    const scope={activeEnhance:captured,enhanceRef:{get current(){return state.enhance;}},
+      draft:state.draft,draftRef:{get current(){return state.draft;}},generation:{get current(){return state.generation;}},
+      identity:{get current(){return state.owner;}},pageRef:{get current(){return state.page;}},selectedIdRef:{get current(){return state.selected;}},
+      submitting:{current:false},setBusy:value=>{state.busy=value;},taskFor:()=>structuredClone(base),
+      validateTask:()=>{},api:{checkCapacity:()=>{},request:async(route,task)=>{state.quotes.push({route,task});if(state.error)throw state.error;return {units:9,unit_label:'积分'};}},
+      askConfirmation:request=>{state.confirmations.push(request);return state.accept;},
+      submit:async tasks=>{state.submitted.push(tasks);},fail:error=>{state.failures.push(error);}};
+    return {state,scope,run:()=>actualFunction('confirmEnhance',scope)()};
+  }
+  const accepted=harness();await accepted.run();
+  assert.equal(accepted.state.quotes.length,1);assert.match(accepted.state.confirmations[0].message,/1280 × 1856，预计 9 积分/);
+  assert.equal(accepted.state.submitted.length,1);assert.equal(accepted.state.submitted[0].length,1);
+  assert.equal(accepted.state.busy,false);assert.equal(accepted.scope.submitting.current,false);
+  const cancelled=harness();cancelled.state.accept=false;await cancelled.run();assert.equal(cancelled.state.submitted.length,0);
+  const failed=harness();failed.state.error=new Error('quote unavailable');await failed.run();
+  assert.equal(failed.state.submitted.length,0);assert.equal(failed.state.confirmations.length,0);assert.equal(failed.state.failures.length,1);
+  for(const change of ['owner','page','selected','draft','enhance']) {
+    const h=harness();let resume,ready;
+    const started=new Promise(resolve=>{ready=resolve;});
+    h.scope.askConfirmation=()=>new Promise(resolve=>{resume=resolve;ready();});
+    const work=h.run();await started;
+    h.state[change]=['draft','enhance'].includes(change)?{...h.state[change]}:'changed';
+    resume(true);await work;assert.equal(h.state.submitted.length,0,`${change} changed during confirmation must invalidate Enhance`);
+  }
+}]);
+
+checks.push(['Output canvas layout preserves history positions and camera anchors', async () => {
+  const items = Object.freeze([
+    Object.freeze({id:'new',width:20,height:30}),
+    Object.freeze({id:'middle',width:100,height:50}),
+    Object.freeze({id:'old',width:80,height:40}),
+  ]);
+  const layout = layoutCanvasItems(items,10);
+  assert.deepEqual(layout, [
+    {id:'new',x:-10,y:-100,width:20,height:30},
+    {id:'middle',x:-50,y:-60,width:100,height:50},
+    {id:'old',x:-40,y:0,width:80,height:40},
+  ]);
+  assert.deepEqual(layout.slice(1),layoutCanvasItems(items.slice(1),10),'new results must not move older world coordinates');
+  assert.deepEqual(layoutCanvasItems([]),[]);
+
+  const close = (actual,expected) => assert.ok(Math.abs(actual-expected)<1e-8,`${actual} differs from ${expected}`);
+  for (const [rect,viewport] of [
+    [{x:-800,y:-1400,width:1600,height:900},{width:1000,height:700}],
+    [{x:-416,y:0,width:832,height:1216},{width:390,height:600}],
+    [{x:20,y:70,width:100,height:80},{width:1000,height:700}],
+  ]) {
+    const camera = fitCanvasRect(rect,viewport);
+    close(camera.x+(rect.x+rect.width/2)*camera.scale,viewport.width/2);
+    close(camera.y+(rect.y+rect.height/2)*camera.scale,viewport.height/2);
+    assert.ok(camera.x+rect.x*camera.scale>=24-1e-8);
+    assert.ok(camera.y+rect.y*camera.scale>=24-1e-8);
+    assert.ok(camera.x+(rect.x+rect.width)*camera.scale<=viewport.width-24+1e-8);
+    assert.ok(camera.y+(rect.y+rect.height)*camera.scale<=viewport.height-24+1e-8);
+    assert.ok(camera.scale>=.02&&camera.scale<=1);
+  }
+  assert.equal(fitCanvasRect({x:0,y:0,width:20,height:20},{width:1000,height:700}).scale,1);
+  assert.equal(fitCanvasRect({x:0,y:0,width:100000,height:100000},{width:100,height:100}).scale,.02);
+
+  const start = {x:-200,y:75,scale:.5}, point = {x:100,y:150};
+  const zoomed = zoomCanvasAt(start,point,2);
+  assert.deepEqual(zoomed,{x:-1100,y:-150,scale:2});
+  for (const scale of [-10,.15,1,100]) {
+    const camera = zoomCanvasAt(start,point,scale);
+    close((point.x-camera.x)/camera.scale,(point.x-start.x)/start.scale);
+    close((point.y-camera.y)/camera.scale,(point.y-start.y)/start.scale);
+    assert.ok(camera.scale>=.02&&camera.scale<=8);
+  }
+  assert.equal(zoomCanvasAt(start,point,-10).scale,.02);
+  assert.equal(zoomCanvasAt(start,point,100).scale,8);
+  assert.deepEqual(zoomCanvasAt(zoomed,point,.5),start);
+  assert.deepEqual(canvasVisibleRect(start,{width:800,height:600}),{x:400,y:-150,width:1600,height:1200});
+  const visible = {x:0,y:0,width:20,height:20};
+  assert.equal(canvasRectsIntersect({x:20,y:20,width:10,height:10},visible),true);
+  assert.equal(canvasRectsIntersect({x:21,y:0,width:10,height:10},visible),false);
+  assert.equal(canvasRectsIntersect({x:21,y:0,width:10,height:10},visible,1),true);
+  assert.equal(canvasRectsIntersect({x:0,y:-12,width:10,height:10},visible,1),false);
+}]);
 
 for (const [name, boundary, argument] of [
   ['removeLocal', 'removeImage', {id: 'fixture-result'}],

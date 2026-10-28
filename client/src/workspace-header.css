@@ -131,6 +131,8 @@ header.workspace-header button:hover,
   border-radius: 5px;
   background: #191b31;
   box-shadow: 0 8px 24px #0005;
+  transform-origin: top left;
+  animation: workbench-panel-in 150ms cubic-bezier(.22,1,.36,1);
 }
 .workspace-menu-popover button { flex: none; justify-content: flex-start; min-height: 38px; padding: 8px 10px; gap: 10px; font-size: 15px; }
 .workspace-menu-popover button[aria-current="page"] { color: #f5f3c2; background: #2c2e43; }

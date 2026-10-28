@@ -1,0 +1,15 @@
+.nai-canvas-backdrop {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  display: block;
+  overflow: hidden;
+  color: #3d4262;
+  opacity: .42;
+  pointer-events: none;
+  user-select: none;
+}
+@media (max-width: 700px) {
+  .nai-canvas-backdrop { opacity: .32; }
+  .nai-canvas-backdrop .is-large { display: none; }
+}

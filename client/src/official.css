@@ -224,26 +224,27 @@
 .nai-shell .nai-image-count button.active,
 .nai-shell .nai-image-count button[aria-pressed="true"] { background: var(--nai-control); color: var(--nai-text); }
 .nai-shell .nai-footer { flex: none; padding: 0 12px 12px; border-top: 1px solid var(--nai-line); background: var(--nai-panel); }
-.nai-shell .nai-parameter-summary { position: relative; display: grid; grid-template-columns: 58px 78px 48px minmax(0, 1fr); gap: 0; min-height: 62px; padding: 9px 25px 9px 11px; border: 1px solid var(--nai-line); border-radius: 8px; background: var(--nai-panel); }
-.nai-shell .nai-parameter-summary > div,
-.nai-shell .nai-parameter-summary > label,
-.nai-shell .nai-parameter-summary > button:not(.nai-expand-settings) { display: flex; min-width: 0; align-items: flex-start; flex-direction: column; gap: 4px; padding: 0; background: none; text-align: left; }
-.nai-shell .nai-parameter-summary > label { color: var(--nai-muted); font-size: 14px; line-height: 18px; }
-.nai-shell .nai-parameter-summary input[type="number"] { width: 100%; height: 21px; min-height: 0; padding: 0; border: 0; color: var(--nai-text); background: none; font-size: 16px; font-weight: 600; line-height: 21px; appearance: textfield; }
+.nai-shell .nai-parameter-summary { display: flex; align-items: center; min-height: 63px; padding: 8px 12px; overflow: hidden; border: 1px solid var(--nai-line); border-radius: 8px; background: radial-gradient(70% 120% at 16% 0%, var(--nai-control), transparent), var(--nai-panel); }
+.nai-parameter-fields { display: flex; flex: 1; align-items: flex-start; min-width: 0; gap: 18px; }
+.nai-parameter-fields > :is(div, label) { display: flex; flex-direction: column; align-items: flex-start; min-width: 28px; margin: 0; padding: 0; text-align: left; }
+.nai-parameter-fields > :nth-child(1) { flex: 0 1 40px; }
+.nai-parameter-fields > :nth-child(2) { flex: 0 1 60px; }
+.nai-parameter-fields > :nth-child(3) { flex: 0 1 64px; }
+.nai-parameter-fields > :nth-child(4) { flex: 1 1 108px; min-width: 108px; }
+.nai-shell .nai-parameter-fields > label,
+.nai-shell .nai-parameter-fields > div > span { color: var(--nai-muted); font-size: 14px; font-weight: 400; line-height: 21px; }
+.nai-shell .nai-parameter-summary input[type="number"] { width: 100%; height: 24px; min-height: 0; padding: 0 0 0 2px; border: 0; color: var(--nai-text); background: none; font-size: 16px; font-weight: 700; line-height: 24px; appearance: textfield; }
 .nai-shell .nai-parameter-summary input::-webkit-inner-spin-button,
 .nai-shell .nai-parameter-summary input::-webkit-outer-spin-button { margin: 0; appearance: none; }
-.nai-shell .nai-parameter-summary > div > button { display: block; max-width: 100%; min-height: 21px; height: 21px; padding: 0; overflow: hidden; background: none; font-size: 16px; font-weight: 600; line-height: 21px; text-align: left; text-overflow: ellipsis; }
+.nai-shell .nai-parameter-fields > div > button { display: flex; justify-content: flex-start; max-width: 100%; min-height: 24px; height: 24px; padding: 0; overflow: hidden; background: none; font-size: 16px; font-weight: 700; line-height: 24px; text-align: left; }
 .nai-shell .nai-parameter-summary .nai-sampler-select { width: 100%; min-width: 0; }
-.nai-shell .nai-parameter-summary .nai-sampler-select .nai-select__trigger { width: 100%; min-height: 21px; height: 21px; padding: 0; border: 0; border-radius: 0; background: none; font-size: 14px; font-weight: 600; line-height: 21px; }
+.nai-shell .nai-parameter-summary .nai-sampler-select .nai-select__trigger { width: 100%; min-height: 24px; height: 24px; padding: 0; border: 0; border-radius: 0; background: none; font-size: 16px; font-weight: 700; line-height: 24px; }
 .nai-shell .nai-parameter-summary .nai-sampler-select .nai-select__trigger:hover { color: var(--nai-accent); background: none; }
-.nai-shell .nai-parameter-summary .nai-sampler-select .nai-select__current-value { color: var(--nai-text); }
-.nai-shell .nai-parameter-summary .nai-sampler-select .nai-select__chevron { width: 12px; height: 12px; color: var(--nai-muted); }
-.nai-shell .nai-parameter-summary .nai-seed-value { max-width: 42px; }
-.nai-shell .nai-parameter-summary span { color: var(--nai-muted); font-size: 14px; line-height: 18px; }
-.nai-shell .nai-parameter-summary b,
-.nai-shell .nai-parameter-summary strong { max-width: 100%; overflow: hidden; font-size: 16px; font-weight: 600; line-height: 21px; text-overflow: ellipsis; white-space: nowrap; }
-.nai-shell .nai-expand-settings { position: absolute; top: 8px; right: 0; width: 25px; height: 44px; padding: 4px; background: none; }
-.nai-shell .nai-expand-settings svg { width: 19px; height: 19px; }
+.nai-shell .nai-parameter-summary .nai-sampler-select .nai-select__current-value { color: inherit; font: inherit; }
+.nai-shell .nai-parameter-summary .nai-sampler-select .nai-select__chevron { display: none; }
+.nai-shell .nai-parameter-fields > div > .nai-seed-value { display: block; width: 64px; text-overflow: ellipsis; white-space: nowrap; }
+.nai-shell .nai-expand-settings { flex: 0 0 30px; align-self: stretch; width: 30px; min-height: 0; margin: -8px -12px -8px 0; padding: 0 12px 0 0; box-sizing: content-box; border: 0; border-radius: 0; background: none; }
+.nai-shell .nai-expand-settings svg { width: 16px; height: 16px; }
 .nai-shell .nai-generate { display: flex; justify-content: space-between; gap: 8px; width: 100%; height: 40px; margin-top: 9px; padding: 5px 8px 5px 12px; border: 0; border-radius: 4px; background: var(--nai-accent); color: var(--nai-page); font-size: 16px; font-weight: 700; }
 .nai-shell .nai-generate:hover { background: #ffffda; color: var(--nai-page); }
 .nai-shell .nai-generate:active { background: #dedcaf; }
@@ -267,8 +268,21 @@
 .nai-shell .nai-advanced select { width: 100%; }
 .nai-shell .nai-advanced .nai-stream { display: flex; grid-column: 1 / -1; align-items: center; gap: 7px; }
 .nai-shell .nai-advanced .nai-stream input { width: 15px; }
-.nai-shell .nai-main { position: relative; display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--nai-page); }
-.nai-shell .nai-stage { display: flex; flex: 1; min-width: 0; min-height: 0; align-items: center; justify-content: center; flex-direction: column; overflow: auto; padding: 28px; }
+.nai-shell .nai-main { position: relative; display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; padding-top: 90px; background: var(--nai-page); }
+.nai-shell .nai-main.is-positioning { padding-top: 0; }
+.nai-shell .nai-main.has-pins:not(.is-positioning) .nai-output-viewport { margin-left: 164px; }
+.nai-pinned-images { position: absolute; z-index: 2; top: 100px; bottom: 116px; left: 16px; display: flex; flex-direction: column; gap: 10px; width: 128px; overflow-y: auto; }
+.nai-pinned-images > div { position: relative; flex: none; }
+.nai-shell .nai-pinned-image { display: block; width: 100%; padding: 0; overflow: hidden; border: 1px solid var(--nai-line); background: var(--nai-panel); }
+.nai-pinned-image img { display: block; width: 100%; max-height: 180px; object-fit: contain; }
+.nai-shell .nai-unpin-image { position: absolute; top: 4px; right: 4px; width: 24px; min-height: 24px; padding: 3px; background: #13152ce0; }
+@media (max-width:700px) {
+  .nai-shell .nai-main.has-pins:not(.is-positioning) .nai-output-viewport { margin-left: 0; margin-bottom: 96px; }
+  .nai-pinned-images { top: auto; bottom: 112px; left: 10px; right: 10px; flex-direction: row; width: auto; height: 76px; overflow-x: auto; overflow-y: hidden; }
+  .nai-pinned-images > div { width: 64px; }
+  .nai-pinned-image img { height: 72px; }
+}
+.nai-shell .nai-stage { position: relative; z-index: 1; display: flex; flex: 1; min-width: 0; min-height: 0; align-items: center; justify-content: center; flex-direction: column; overflow: hidden; padding: 20px 28px 28px; }
 .nai-shell .nai-stage > img,
 .nai-shell .nai-stage > .nai-artwork > img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
 .nai-shell .nai-stage.director-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; gap: clamp(10px, 2vw, 24px); }
@@ -279,10 +293,7 @@
 .nai-shell .nai-comparison-placeholder { flex-direction: column; gap: 10px; border: 1px dashed var(--nai-line); border-radius: 4px; color: var(--nai-muted); font-size: 13px; text-align: center; }
 .nai-shell .nai-artwork { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; width: 100%; align-items: center; justify-content: center; }
 .nai-shell .nai-artwork > img { width: auto; height: auto; }
-.nai-shell .nai-image-actions { display: flex; flex: none; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; padding: 0 12px 14px; }
-.nai-shell .nai-queue-indicator { position: absolute; z-index: 3; top: 20px; left: 16px; padding: 5px 8px; color: var(--nai-muted); font-size: 12px; }
 .nai-shell .nai-output-label { flex: none; margin-top: 8px; color: var(--nai-muted); font-size: 12px; }
-.nai-shell .nai-image-actions button { min-height: 30px; padding: 6px 9px; font-size: 13px; }
 .nai-shell .nai-open-history { position: absolute; z-index: 3; top: 20px; right: 12px; width: 30px; height: 30px; padding: 3px; background: transparent; }
 .nai-shell .nai-open-history svg { width: 25px; height: 25px; }
 .nai-shell .nai-history { display: flex; flex: 0 0 140px; flex-direction: column; width: 140px; min-width: 0; min-height: 0; border-left: 1px solid var(--nai-line); background: var(--nai-panel); }
@@ -319,7 +330,6 @@
   .nai-shell textarea.nai-prompt-input { min-height: 104px; font-size: 16px; }
   .nai-shell .nai-negative-section textarea.nai-prompt-input { min-height: 80px; }
   .nai-shell .nai-footer { padding: 9px 12px max(9px, env(safe-area-inset-bottom)); }
-  .nai-shell .nai-parameter-summary { min-height: 58px; padding-top: 7px; padding-bottom: 7px; }
   .nai-shell .nai-generate { height: 42px; margin-top: 7px; }
   .nai-shell.mobile-edit .nai-main,
   .nai-shell.mobile-edit .nai-history,
@@ -332,8 +342,6 @@
   .nai-shell > .nai-history { top: 44px; }
   .nai-shell .nai-history-heading { flex-basis: 52px; height: 52px; }
   .nai-shell .nai-open-history { top: 10px; right: 10px; }
-  .nai-shell .nai-image-actions { gap: 4px; }
-  .nai-shell .nai-image-actions button { min-height: 34px; font-size: 12px; }
 }
 @media (max-width: 370px) {
   .nai-shell .nai-scroll,
@@ -343,10 +351,7 @@
   .nai-shell .nai-model-row > label,
   .nai-shell .nai-model-row > div { gap: 4px; }
   .nai-shell .nai-anime-mode { padding-right: 7px; padding-left: 7px; }
-  .nai-shell .nai-parameter-summary { grid-template-columns: 48px 67px 41px minmax(0, 1fr); padding-left: 8px; }
-  .nai-shell .nai-parameter-summary span { font-size: 12px; }
-  .nai-shell .nai-parameter-summary b,
-  .nai-shell .nai-parameter-summary strong { font-size: 14px; }
+  .nai-parameter-fields { gap: 10px; }
   .nai-shell .nai-size-row > .nai-resolution-select { flex-basis: 105px; width: 105px; }
 }
 .theme-official .image-import-modal { width: min(600px, calc(100vw - 24px)); max-height: min(92vh, 900px); overflow: auto; }

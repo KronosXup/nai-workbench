@@ -97,6 +97,8 @@
   font: 14px/1.4 "Source Sans Pro", "Segoe UI", "Microsoft YaHei UI", sans-serif;
   scrollbar-color: #41435e transparent;
   scrollbar-width: thin;
+  transform-origin: top center;
+  animation: workbench-panel-in 150ms cubic-bezier(.22,1,.36,1);
 }
 
 .nai-select__menu::-webkit-scrollbar {

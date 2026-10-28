@@ -422,6 +422,9 @@ export default function ReferenceImages({
               })}
             </div>
           )}
+          {vibeImages.length > 0 && effectiveModel.startsWith("nai-diffusion-4") && (
+            <p className="nai-ri-export-note">编码后请及时导出 Vibe 文件。刷新或关闭页面会清空临时参考图和编码，重传原图可能再次收费。</p>
+          )}
           {openMenu === "vibe" && (
             <MorePanel>
               <button type="button" disabled={Boolean(vibeAddReason)} title={vibeAddReason || undefined} onClick={() => { setOpenMenu(null); vibeFileInput.current?.click(); }}>导入 Vibe / JSON / PNG</button>

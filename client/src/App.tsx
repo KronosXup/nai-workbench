@@ -48,6 +48,8 @@ import type {
 } from "./types";
 import ImageViewer from "./ImageViewer";
 import { variationTasks } from './variations';
+import { enhanceDimensions, enhanceScales, enhanceTask } from './enhance';
+import type { EnhanceSettings } from './EnhancePanel';
 import MaskEditor from "./MaskEditor";
 import CanvasEditor from "./CanvasEditor";
 import { canvasProjectScope, type CanvasProject } from "./canvasProject";
@@ -284,9 +286,12 @@ export default function App() {
   pageRef.current = page;
   const [mobileTab, setMobileTab] = useState<"edit" | "result">("edit");
   const [token, setToken] = useState(
-    () => sessionStorage.getItem("nai-wb-token") || "",
+    () => sessionStorage.getItem("nai-wb-token") || localStorage.getItem("nai-wb-remembered-token") || "",
   );
   const [loginToken, setLoginToken] = useState(token);
+  const [rememberDevice, setRememberDevice] = useState(
+    () => Boolean(token && localStorage.getItem("nai-wb-remembered-token") === token),
+  );
   const [api, setApi] = useState<GateApi | null>(null);
   const suggestTags = useCallback(async (model: string, fragment: string): Promise<TagSuggestion[]> => {
     if (!api) return [];
@@ -330,6 +335,10 @@ export default function App() {
   const [showMask, setShowMask] = useState(false);
   const [canvasInput, setCanvasInput] = useState<{ image: string; width: number; height: number; scope: string } | null>(null);
   const [pixelInput, setPixelInput] = useState<{ image: string; width: number; height: number; target?: 'director' } | null>(null);
+  const [enhance, setEnhance] = useState<{ rowId: string; owner: string; image: ImportedImage; settings: EnhanceSettings } | null>(null);
+  const enhanceRef = useRef(enhance);
+  enhanceRef.current = enhance;
+  const [toolbarPrices, setToolbarPrices] = useState<Partial<Record<'variations' | 'upscale', { value: number; unit: string }>>>({});
   const [pendingMaskDraft, setPendingMaskDraft] = useState<Draft | null>(null);
   const [imports,setImports]=useState<ImportedImage[]>([]);
   const [dragging,setDragging]=useState(false);
@@ -404,6 +413,41 @@ export default function App() {
   const selected = rows.find((r) => r.id === selectedId);
   const drawingRows = rows.filter(row => row.job.operation !== 'augment');
   const drawingSelected = drawingRows.find(row => row.id === selectedId);
+  const activeEnhance = enhance && page === 'draw' && !blankCanvas && !drawingSourceVisible &&
+    enhance.rowId === drawingSelected?.id && enhance.owner === identity.current ? enhance : null;
+  useEffect(() => { if (enhance && !activeEnhance) setEnhance(null); }, [activeEnhance, enhance]);
+  useEffect(() => {
+    setToolbarPrices({});
+    if (!api || !drawingSelected || page !== 'draw' || blankCanvas || drawingSourceVisible) return;
+    let cancelled = false;
+    const row = drawingSelected, owner = identity.current;
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const image = await readImage(new File([row.blob], row.result.filename, { type: row.result.media_type }));
+          if (cancelled || owner !== identity.current) return;
+          const tasks: { id: 'variations' | 'upscale'; task: Task; count: number }[] = [];
+          if (['generate', 'img2img', 'inpaint'].includes(row.job.operation))
+            tasks.push({ id: 'variations', task: variationTasks(row, image, false)[0], count: 3 });
+          if (image.width * image.height <= 3145728)
+            tasks.push({ id: 'upscale', count: 1, task: { request_id: uuid(), operation: 'upscale', model: draft.model,
+              prompt: '', negative_prompt: '', label: '高清放大', parameters: { ...structuredClone(defaultParameters),
+                image: image.data, width: image.width, height: image.height, scale_factor: 2, n_samples: 1 } } });
+          const results = await Promise.allSettled(tasks.map(async item => {
+            const price = await api.request<{ units: number; unit_label: string }>('/quote', item.task);
+            if (!Number.isFinite(price.units) || price.units < 0) throw new Error('无有效报价');
+            return [item.id, { value: price.units * item.count, unit: price.unit_label.includes('V5') ? 'V5 单位' : '积分' }] as const;
+          }));
+          if (!cancelled && owner === identity.current)
+            setToolbarPrices(Object.fromEntries(results.flatMap(result => result.status === 'fulfilled' ? [result.value] : [])));
+        } catch {
+          // The action's confirmation reports read/quote failures; never display a guessed price here.
+          if (!cancelled) setToolbarPrices({});
+        }
+      })();
+    }, 250);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [api, page, blankCanvas, drawingSourceVisible, drawingSelected?.id, drawingSelected?.result.sha256, draft.model]);
   const activeJobs = jobs.filter(
     (j) => ["queued", "waiting", "running"].includes(j.status),
   );
@@ -536,14 +580,18 @@ export default function App() {
     setQuoteError(null);
     setToken("");
     setLoginToken("");
+    const currentSavedToken = sessionStorage.getItem("nai-wb-token");
     sessionStorage.removeItem("nai-wb-token");
+    if (currentSavedToken && localStorage.getItem("nai-wb-remembered-token") === currentSavedToken)
+      localStorage.removeItem("nai-wb-remembered-token");
+    setRememberDevice(false);
     syncBusy.current = false;
     setFailure("");
     setUserRefreshIssue(false);
     setNotice("");
     setBackupWarning("");
   }, []);
-  const connect = useCallback(async (access: string) => {
+  const connect = useCallback(async (access: string, rememberDevice = false) => {
     settleConfirmation(false);
     const seq = ++generation.current;
     syncBusy.current = false;
@@ -569,13 +617,17 @@ export default function App() {
     setQuoteError(null);
     identity.current = "";
     canvasScope.current = "";
+    let invalidCredential = false;
     try {
       if (!access.trim()) throw new Error("请填写 Gate Key。");
       await verifyGateHealth();
       if (seq !== generation.current) return;
       const client = new GateApi("", access.trim());
       const [me, capabilities] = await Promise.all([
-        client.request<User>("/me"),
+        client.request<User>("/me").catch((error: unknown) => {
+          invalidCredential = error instanceof ApiError && (error.status === 401 || error.status === 403);
+          throw error;
+        }),
         client.request<Capabilities>("/capabilities"),
       ]);
       if (me.gate_quota?.imageModelScope === 'legacy') capabilities.models = capabilities.models.filter(m=>!m.id.startsWith('nai-diffusion-5'));
@@ -604,13 +656,21 @@ export default function App() {
       apiRef.current = client;
       setToken(access.trim());
       sessionStorage.setItem("nai-wb-token", access.trim());
+      if (rememberDevice) localStorage.setItem("nai-wb-remembered-token", access.trim());
+      else if (localStorage.getItem("nai-wb-remembered-token") === access.trim())
+        localStorage.removeItem("nai-wb-remembered-token");
       localStorage.removeItem("nai-wb-base");
       setLoaded(true);
       if (recoveredDraft) notify("草稿已损坏，已恢复默认设置；图库仍保留。");
     } catch (e) {
       if (seq === generation.current) {
         fail(e);
-        sessionStorage.removeItem("nai-wb-token");
+        if (invalidCredential) {
+          if (sessionStorage.getItem("nai-wb-token") === access.trim())
+            sessionStorage.removeItem("nai-wb-token");
+          if (localStorage.getItem("nai-wb-remembered-token") === access.trim())
+            localStorage.removeItem("nai-wb-remembered-token");
+        }
       }
     } finally {
       if (seq === generation.current) setConnecting(false);
@@ -624,11 +684,11 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', warn);
   }, []);
   useEffect(() => {
-    if (token) void connect(token);
+    if (token) void connect(token, rememberDevice);
     return () => {
       generation.current++;
     };
-  }, []); // Restore only the current tab's token.
+  }, []); // Prefer this tab's Key, then the Key explicitly remembered on this device.
   useEffect(() => {
     if (!loaded || !identity.current) return;
     const owner = identity.current;
@@ -807,6 +867,7 @@ export default function App() {
     draft.quality,
     draft.negative,
     draft.parameters,
+    activeEnhance,
   ]);
   useEffect(() => {
     if (
@@ -1015,6 +1076,15 @@ export default function App() {
     }
   }
   function submitMain() {
+    if (activeEnhance) {
+      void confirmEnhance();
+      return;
+    }
+    if (draft.operation === 'upscale' && draft.parameters.image) {
+      void confirmUpscale({name:'源图片',data:draft.parameters.image,
+        width:Number(draft.parameters.source_width ?? draft.parameters.width),height:Number(draft.parameters.source_height ?? draft.parameters.height)});
+      return;
+    }
     const count = Math.max(1, Math.min(20, Math.floor(draft.count)));
     void submit(Array.from({ length: count }, () => taskFor()));
   }
@@ -1052,7 +1122,9 @@ export default function App() {
     setQuote(null);
     try {
       const operation=page==='batch' && !['generate','img2img','inpaint'].includes(draft.operation)?'generate':draft.operation;
-      const task = taskFor(draft.prompt,draft,"预估",operation);
+      const task = activeEnhance
+        ? enhanceTask(taskFor(draft.prompt, draft, 'Enhance', 'img2img'), activeEnhance.image, activeEnhance.settings)
+        : taskFor(draft.prompt,draft,"预估",operation);
       if(!effectiveModelForOperation(task.model,task.operation).startsWith('nai-diffusion-4') && Array.isArray(task.parameters.vibe_source_files) && task.parameters.vibe_source_files.some((item:VibeFileItem|null)=>item?.type==='encoding'))return;
       // Configuration feedback is derived immediately from the draft. Do not
       // send a known-invalid quote or turn it into a network error with Retry.
@@ -1073,6 +1145,10 @@ export default function App() {
     }
   }
   function acceptImage(kind: ImageUse, image: ImportedImage) {
+    if (kind === 'upscale') {
+      void confirmUpscale(image);
+      return;
+    }
     if (kind === 'augment') {
       openDirector({ data: image.data, width: image.width, height: image.height, name: image.name });
       notify('图片已载入导演工具');
@@ -1097,7 +1173,6 @@ export default function App() {
         character_reference_strengths:[...d.parameters.character_reference_images.map((_,i)=>d.parameters.character_reference_strengths?.[i]??1),1],
         character_reference_fidelities:[...d.parameters.character_reference_images.map((_,i)=>d.parameters.character_reference_fidelities?.[i]??1),1]}}));
     } else {
-      if(['upscale','augment'].includes(kind) && image.width*image.height>3145728)throw new Error('此图片超过工具的 3145728 像素上限，请先缩小');
       const width=Math.max(64,Math.min(4096,Math.round(image.width/8)*8)),height=Math.max(64,Math.min(4096,Math.round(image.height/8)*8));
       const next:Draft={...d,operation:kind==='image'?'img2img':kind,count:1,parameters:{...d.parameters,image:image.data,mask:undefined,width,height,source_width:image.width,source_height:image.height,scale_factor:2,req_type:d.parameters.req_type??'lineart'}};
       if(kind==='inpaint'){setPendingMaskDraft(next);setShowMask(true);return;}
@@ -1154,8 +1229,9 @@ export default function App() {
     } catch(error){if(current())fail(error);}
   }
   async function uploadImage(kind: 'image'|'mask'|'vibe'|'character'|'inpaint'|'upscale',file:File) {
-    const seq=generation.current,owner=identity.current,originPage=pageRef.current,selection=++importSequence.current;
-    const current=()=>seq===generation.current && owner===identity.current && originPage===pageRef.current && selection===importSequence.current;
+    const seq=generation.current,owner=identity.current,originPage=pageRef.current,selection=++importSequence.current,capturedDraft=draftRef.current;
+    const current=()=>seq===generation.current && owner===identity.current && originPage===pageRef.current && selection===importSequence.current &&
+      (kind!=='upscale' || draftRef.current===capturedDraft);
     try {
       if(kind==='mask') {
         const image=await readImage(file);
@@ -1247,6 +1323,10 @@ export default function App() {
   }
   async function useAs(operation: Operation | "vibe" | "character", row = selected) {
     if (!row) return;
+    if (operation === 'upscale') {
+      await confirmUpscale(row);
+      return;
+    }
     const seq = generation.current,
       owner = identity.current, originPage = pageRef.current, selection = ++importSequence.current,
       capturedSelection = selectedIdRef.current;
@@ -1261,6 +1341,94 @@ export default function App() {
       acceptImage(operation==='img2img'?'image':operation as ImageUse,image);
     } catch (e) {
       if (current()) fail(e);
+    }
+  }
+  async function confirmEnhance() {
+    if (!api || submitting.current || !activeEnhance) return;
+    const captured = activeEnhance, capturedDraft = draftRef.current;
+    const seq = generation.current, owner = identity.current;
+    const current = () => seq === generation.current && owner === identity.current && pageRef.current === 'draw' &&
+      selectedIdRef.current === captured.rowId && enhanceRef.current === captured && draftRef.current === capturedDraft;
+    submitting.current = true;
+    setBusy(true);
+    try {
+      const task = enhanceTask(taskFor(draft.prompt, draft, 'Enhance', 'img2img'), captured.image, captured.settings);
+      validateTask(task);
+      api.checkCapacity(1);
+      const price = await api.request<{ units: number; unit_label: string }>('/quote', task);
+      if (!current()) return;
+      if (!Number.isFinite(price.units) || price.units < 0) throw new Error('暂时无法取得 Enhance 报价');
+      const cost = price.unit_label.includes('V5') ? `${price.units} V5 单位` : `${price.units} 积分`;
+      const accepted = await askConfirmation({ title: '确认增强图像？',
+        message: `${captured.image.width} × ${captured.image.height} → ${task.parameters.width} × ${task.parameters.height}，预计 ${cost}。`,
+        confirmLabel: '确认增强' });
+      if (!accepted || !current()) return;
+      submitting.current = false;
+      await submit([task]);
+    } catch (error) {
+      if (current()) fail(error);
+    } finally {
+      if (seq === generation.current && owner === identity.current) {
+        submitting.current = false;
+        setBusy(false);
+      }
+    }
+  }
+  async function openEnhance(row: LocalImage) {
+    const seq = generation.current, owner = identity.current, selection = ++importSequence.current;
+    try {
+      const image = await readImage(new File([row.blob], row.result.filename, { type: row.result.media_type }));
+      if (seq !== generation.current || owner !== identity.current || pageRef.current !== 'draw' ||
+          selection !== importSequence.current || selectedIdRef.current !== row.id) return;
+      const scales = enhanceScales(image.width, image.height, draftRef.current.model).filter(option => !option.disabled);
+      const scale = scales.at(-1)?.value;
+      if (scale === undefined) throw new Error('这张图片没有可用的增强尺寸');
+      setEnhance({ rowId: row.id, owner, image, settings: { scale, magnitude: 3, strength: .5, noise: 0, advanced: false } });
+    } catch (error) {
+      if (seq === generation.current && owner === identity.current && selection === importSequence.current) fail(error);
+    }
+  }
+  async function confirmUpscale(source: ImportedImage | LocalImage) {
+    if (!api || submitting.current) return;
+    const seq = generation.current, owner = identity.current, originPage = pageRef.current;
+    const selection = ++importSequence.current, capturedSelection = selectedIdRef.current, capturedDraft = draftRef.current;
+    const current = () => seq === generation.current && owner === identity.current && pageRef.current === originPage &&
+      selection === importSequence.current && selectedIdRef.current === capturedSelection && draftRef.current === capturedDraft;
+    submitting.current = true;
+    setBusy(true);
+    try {
+      if ('blob' in source && !source.result.media_type.startsWith('image/')) throw new Error('请选择一张图片。');
+      const image = 'blob' in source
+        ? await readImage(new File([source.blob], source.result.filename, {type: source.blob.type || source.result.media_type}))
+        : source;
+      if (!current()) return;
+      if (image.width * image.height > 3145728) throw new Error('此图片超过工具的 3145728 像素上限，请先缩小');
+      const task: Task = {
+        request_id: uuid(), operation: 'upscale', model: capturedDraft.model, prompt: '', negative_prompt: '', label: '高清放大',
+        parameters: {...structuredClone(defaultParameters), image: image.data, width: image.width, height: image.height,
+          source_width: image.width, source_height: image.height, scale_factor: 2, n_samples: 1},
+      };
+      validateTask(task);
+      api.checkCapacity(1);
+      const price = await api.request<{units: number; unit_label: string}>('/quote', task);
+      if (!current()) return;
+      if (!Number.isFinite(price.units) || price.units < 0) throw new Error('暂时无法取得高清放大报价');
+      const cost = price.unit_label.includes('V5') ? `${price.units} V5 单位` : `${price.units} 积分`;
+      const accepted = await askConfirmation({
+        title: '高清放大',
+        message: `${image.width} × ${image.height} → ${image.width * 2} × ${image.height * 2}，预计 ${cost}。`,
+        confirmLabel: '确认放大',
+      });
+      if (!accepted || !current()) return;
+      submitting.current = false;
+      await submit([task]);
+    } catch (error) {
+      if (current()) fail(error);
+    } finally {
+      if (seq === generation.current && owner === identity.current) {
+        submitting.current = false;
+        setBusy(false);
+      }
     }
   }
   async function generateVariations(row: LocalImage) {
@@ -1299,6 +1467,15 @@ export default function App() {
         setBusy(false);
       }
     }
+  }
+  async function copyResultImage(row: LocalImage) {
+    try {
+      if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') throw new Error('当前浏览器不支持复制图片');
+      const png = row.result.media_type === 'image/png' ? row.blob : readImage(new File([row.blob], row.result.filename, {type: row.result.media_type}))
+        .then(image => new Blob([Uint8Array.from(atob(image.data), value => value.charCodeAt(0))], {type:'image/png'}));
+      await navigator.clipboard.write([new ClipboardItem({'image/png':png})]);
+      notify('图片已复制');
+    } catch (error) { fail(error); }
   }
   async function reuse(row: LocalImage) {
     if (row.job.operation === 'augment') {
@@ -1473,7 +1650,9 @@ export default function App() {
     ...(caps?.operations && !caps.operations.includes('augment') ? {augment: '当前服务未提供导演工具'} : {}),
   };
   const effectiveOperation = page === "batch" && !usesGenerationSettings(draft.operation) ? "generate" : draft.operation;
-  const configurationIssue = configurationIssueFor({ ...draft, operation: effectiveOperation }, models, caps?.operations);
+  const configurationIssue = configurationIssueFor(activeEnhance
+    ? enhanceTask(taskFor(draft.prompt, draft, 'Enhance', 'img2img'), activeEnhance.image, activeEnhance.settings)
+    : { ...draft, operation: effectiveOperation }, models, caps?.operations);
   const generationBlocked = Boolean(configurationIssue || (quoteError && !quoteError.retryable));
   const batchCapacityIssue = batchTasks().length + queuePending > MAX_PENDING
     ? `本次 ${batchTasks().length} 张，队列还可加入 ${Math.max(0, MAX_PENDING - queuePending)} 张。` : "";
@@ -1522,7 +1701,7 @@ export default function App() {
         onQueue={() => setShowQueue(true)} onLibrary={() => setShowLibrary("all")}
         onNewCanvas={openBlankDrawingCanvas}
         onBlankCanvas={() => { importSequence.current++; setDrawingSourceVisible(false); setBlankCanvasRevision(value => value + 1); setBlankCanvas(true); setPage("draw"); setMobileTab("result"); }} />}
-      {user && (queuePending > 0 || queuePaused || encodingPaused) && <div className="queue-status-banner" role="status">
+      {user && (queuePending > 0 || queuePaused || encodingPaused) && (!officialDraw || queuePaused || encodingPaused || queueEncoding || Boolean(waitingJob)) && <div className="queue-status-banner" role="status">
         <div className="queue-status-copy"><span>{queueMessage}</span><small><GateQueueStatus monitor={serverQueue}/></small></div>
         <button onClick={() => setShowQueue(true)}>查看队列</button>
       </div>}
@@ -1551,7 +1730,7 @@ export default function App() {
             aria-labelledby="login-title"
             onSubmit={(e) => {
               e.preventDefault();
-              void connect(loginToken);
+              void connect(loginToken, rememberDevice);
             }}
           >
             <header className="login-heading">
@@ -1566,13 +1745,14 @@ export default function App() {
                 value={loginToken}
                 onChange={(e) => setLoginToken(e.target.value)}
                 placeholder="输入现有 Gate 的 Key"
-                aria-describedby="login-token-help"
                 required
               />
             </Field>
-            <p id="login-token-help" className="login-help">
-              使用现有 Gate 分配的 Key，无需填写 NovelAI 官方密钥。
-            </p>
+            <label className="login-remember">
+              <input type="checkbox" checked={rememberDevice} disabled={connecting}
+                onChange={(event) => setRememberDevice(event.target.checked)} />
+              <span>记住此设备</span>
+            </label>
             <button className="primary" disabled={connecting}>
               {connecting && <LoaderCircle className="spin" size={17} />}
               {connecting ? "连接中…" : "进入绘图"}
@@ -1590,7 +1770,6 @@ export default function App() {
               operations={caps?.operations}
               user={user}
               busy={busy}
-              pending={queuePending}
               quote={quote}
               quoteError={quoteError}
               configurationIssue={configurationIssue}
@@ -1602,6 +1781,7 @@ export default function App() {
               submit={() => void submitMain()}
               references={refs}
               rows={drawingRows}
+              jobs={jobs.filter(job => job.operation !== 'augment' && job.operation !== 'encode_vibe')}
               selected={blankCanvas ? undefined : drawingSelected}
               select={(row) => { chooseResult(row.id); setBlankCanvas(false); }}
               renderImage={(row) => <ImageView row={row} />}
@@ -1610,13 +1790,19 @@ export default function App() {
               onLibrary={() => setShowLibrary("all")}
               onNegativeLibrary={() => setShowLibrary("negative")}
               onFinal={() => setShowFinal(true)}
-              onQueue={() => setShowQueue(true)}
               onPage={setPage}
               mobile={mobileTab}
               onMobileChange={setMobileTab}
               onEnlarge={() => { if (drawingSelected) { chooseResult(drawingSelected.id); setLightbox(true); } }}
               onReuse={() => drawingSelected && reuse(drawingSelected)}
               onVariations={() => drawingSelected && void generateVariations(drawingSelected)}
+              onEnhance={() => drawingSelected && void openEnhance(drawingSelected)}
+              enhance={activeEnhance ? { settings: activeEnhance.settings,
+                scales: enhanceScales(activeEnhance.image.width, activeEnhance.image.height, draft.model),
+                ...enhanceDimensions(activeEnhance.image.width, activeEnhance.image.height, activeEnhance.settings.scale) } : undefined}
+              onEnhanceChange={patch => setEnhance(current => current ? { ...current, settings: { ...current.settings, ...patch } } : null)}
+              onEnhanceClose={() => setEnhance(null)}
+              toolbarPrices={toolbarPrices}
               onEditSelected={(row) => void openResultCanvas(row)}
               onPixelSelected={(row) => void openResultPixelSnap(row)}
               onUseAs={(operation) => void useAs(operation, drawingSelected)}
@@ -1624,6 +1810,7 @@ export default function App() {
                 drawingSelected &&
                 local.downloadImage(drawingSelected)
               }
+              onCopyImage={() => { if (drawingSelected) void copyResultImage(drawingSelected); }}
             />
           )}
           {page === 'director' && api && <DirectorWorkspace
@@ -1999,7 +2186,7 @@ export default function App() {
                     退出并切换口令
                   </button>
                   <p className="muted small">
-                    口令只保留到当前标签页会话结束。
+                  {rememberDevice ? "已记住此设备" : "仅当前标签页"}
                   </p>
                 </section>
                 <section>
@@ -2408,7 +2595,7 @@ export default function App() {
           } catch(error) { fail(error); }
         }}/>
       }
-      {lightbox && selected && <ImageViewer row={selected} rows={rows} onSelect={setSelectedId} onClose={() => setLightbox(false)}/>}
+      {lightbox && selected && <ImageViewer row={selected} rows={rows} onSelect={chooseResult} onClose={() => setLightbox(false)}/>}
       {confirmation && (
         <div className="modal-backdrop confirmation-backdrop">
           <section

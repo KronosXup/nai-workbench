@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
+import { emphasisBackground, promptEmphasis } from './promptEmphasis';
+import './tagInput.css';
 
 export type TagSuggestion = { tag: string; count: number };
 type Props = {
@@ -29,6 +31,8 @@ export function tagFragment(value: string, cursor: number) {
 
 export default function TagInput({label,value,onChange,model,suggest,disabled,placeholder}: Props) {
   const input = useRef<HTMLTextAreaElement>(null);
+  const highlights = useRef<HTMLDivElement>(null);
+  const emphasis = useMemo(() => promptEmphasis(value, model), [value, model]);
   const [cursor,setCursor] = useState(value.length);
   const [focused,setFocused] = useState(false);
   const [tags,setTags] = useState<TagSuggestion[]>([]);
@@ -36,6 +40,28 @@ export default function TagInput({label,value,onChange,model,suggest,disabled,pl
   const [message,setMessage] = useState('');
   const request = useRef(0);
   const fragment = tagFragment(value,cursor);
+
+  function syncHighlights() {
+    const textarea = input.current, mirror = highlights.current;
+    if (!textarea || !mirror) return;
+    const style = getComputedStyle(textarea);
+    for (const property of ['font-family', 'font-size', 'font-weight', 'font-style', 'font-stretch',
+      'line-height', 'letter-spacing', 'word-spacing', 'text-indent', 'text-transform', 'tab-size',
+      'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'white-space', 'overflow-wrap', 'word-break', 'text-align'])
+      mirror.style.setProperty(property, style.getPropertyValue(property));
+    mirror.style.left = style.borderLeftWidth;
+    mirror.style.top = style.borderTopWidth;
+    mirror.style.width = `${textarea.clientWidth}px`;
+    mirror.style.height = `${textarea.clientHeight}px`;
+    mirror.scrollTop = textarea.scrollTop;
+    mirror.scrollLeft = textarea.scrollLeft;
+  }
+  useLayoutEffect(syncHighlights, [value, model]);
+  useEffect(() => {
+    const observer = new ResizeObserver(syncHighlights);
+    if (input.current) observer.observe(input.current);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const serial=++request.current;
@@ -84,12 +110,22 @@ export default function TagInput({label,value,onChange,model,suggest,disabled,pl
     }
   }
   return <div className="nai-tag-input">
+    <div className="nai-prompt-editor">
+    <div ref={highlights} className="nai-prompt-highlights" aria-hidden="true">
+      {emphasis.map((span, index) => <span key={index} style={{ backgroundColor: emphasisBackground(span) }}>{span.text}</span>)}
+      {value.endsWith('\n') ? '\u200b' : ''}
+    </div>
     <textarea ref={input} className="nai-prompt-input" aria-label={label} aria-autocomplete={suggest && !disabled ? 'list' : 'none'}
       aria-expanded={tags.length>0} placeholder={placeholder} value={value}
       onChange={event=>{onChange(event.target.value);setCursor(event.target.selectionStart);setFocused(true);}}
       onSelect={event=>setCursor(event.currentTarget.selectionStart)}
       onFocus={()=>setFocused(true)} onBlur={()=>{setFocused(false);setTags([]);}}
-      onKeyDown={keyDown}/>
+      onKeyDown={keyDown} onScroll={event=>{
+        if (!highlights.current) return;
+        highlights.current.scrollTop = event.currentTarget.scrollTop;
+        highlights.current.scrollLeft = event.currentTarget.scrollLeft;
+      }}/>
+    </div>
     {focused && tags.length>0 && <div className="nai-tag-suggestions" role="listbox" aria-label={`${label}标签建议`}>
       {tags.map((item,index)=><button key={`${item.tag}-${index}`} type="button" role="option" aria-selected={selected===index}
         onMouseDown={event=>event.preventDefault()} onClick={()=>choose(item.tag)}>

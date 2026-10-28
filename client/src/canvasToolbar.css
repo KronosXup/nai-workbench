@@ -1,0 +1,275 @@
+.nai-shell .nai-main { container-type: inline-size; container-name: nai-canvas; }
+.nai-canvas-toolbar-anchor {
+  position: absolute;
+  z-index: 8;
+  top: 10px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+  padding: 0 52px;
+  pointer-events: none;
+}
+.nai-canvas-toolbar {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface);
+  pointer-events: auto;
+}
+.nai-canvas-toolbar.nai-canvas-toolbar-measure {
+  position: absolute;
+  visibility: hidden;
+  width: max-content;
+  max-width: none;
+  pointer-events: none;
+}
+.nai-shell .nai-canvas-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 6px;
+  gap: 8px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+}
+.nai-shell .nai-canvas-control svg { flex: none; }
+.nai-shell button.nai-canvas-control:hover:not(:disabled),
+.nai-shell button.nai-canvas-control[aria-expanded="true"],
+.nai-shell button.nai-canvas-control[aria-pressed="true"] {
+  background: var(--control);
+  color: var(--yellow);
+}
+.nai-shell button.nai-canvas-control:active:not(:disabled) { background: var(--control-hover); }
+.nai-shell button.nai-canvas-control:disabled { opacity: .32; cursor: default; }
+.nai-shell button.nai-canvas-control:focus-visible { outline: 2px solid var(--yellow); outline-offset: -2px; }
+.nai-shell .nai-canvas-control.has-price {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 5px 8px;
+}
+.nai-canvas-action-price {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: var(--control);
+  color: var(--yellow);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.nai-canvas-toolbar-divider {
+  align-self: center;
+  flex: 0 0 1px;
+  width: 1px;
+  height: 30px;
+  margin: 0 3px;
+  background: var(--line);
+}
+.nai-canvas-corners {
+  position: relative;
+  z-index: 8;
+  order: 1;
+  flex: none;
+  width: 100%;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  min-width: 0;
+  pointer-events: none;
+}
+.nai-canvas-metadata,
+.nai-canvas-output-actions {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  pointer-events: auto;
+}
+.nai-canvas-metadata,
+.nai-canvas-save-group,
+.nai-canvas-extra-group {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface);
+}
+.nai-canvas-output-actions { flex: 0 0 auto; margin-left: auto; gap: 10px; }
+.nai-canvas-dimensions {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 10px;
+  height: 36px;
+  margin-left: 6px;
+  padding: 0 12px;
+  border-radius: 3px;
+  background: var(--control);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.nai-canvas-dimension-cross { color: var(--muted); }
+.nai-shell .nai-canvas-control.nai-canvas-seed {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 6px 12px;
+  gap: 11px;
+  margin: 0 5px;
+  background: var(--control);
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.nai-canvas-toolbar-menu {
+  position: fixed;
+  z-index: 145;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 5px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--ink);
+  font: 14px/1.35 "Source Sans Pro", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  transform-origin: top center;
+  animation: workbench-panel-in 150ms cubic-bezier(.22,1,.36,1);
+}
+.theme-official.nai-canvas-toolbar-menu button {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
+  font: inherit;
+  text-align: left;
+}
+.theme-official.nai-canvas-toolbar-menu button:hover:not(:disabled) { background: var(--control); color: var(--yellow); }
+.theme-official.nai-canvas-toolbar-menu button:active:not(:disabled) { background: var(--control-hover); }
+.theme-official.nai-canvas-toolbar-menu button:focus-visible { outline: 2px solid var(--yellow); outline-offset: -2px; }
+.theme-official.nai-canvas-toolbar-menu button:disabled { opacity: .35; cursor: default; }
+.nai-canvas-toolbar-menu svg { flex: none; }
+.nai-canvas-toolbar-menu .nai-canvas-action-price { margin-left: auto; }
+.nai-canvas-display-popover {
+  position: fixed;
+  z-index: 145;
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 5px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--ink);
+  transform-origin: bottom center;
+  animation: workbench-panel-in 150ms cubic-bezier(.22,1,.36,1);
+}
+.nai-canvas-display-toggles { display: flex; flex: 0 0 36px; flex-direction: column; gap: 5px; }
+.theme-official .nai-canvas-display-toggles button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 6px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+}
+.theme-official .nai-canvas-display-toggles button:hover,
+.theme-official .nai-canvas-display-toggles button[aria-pressed="true"],
+.theme-official .nai-canvas-display-toggles button[aria-expanded="true"] { background: var(--control); color: var(--yellow); }
+.theme-official .nai-canvas-display-toggles button:focus-visible { outline: 2px solid var(--yellow); outline-offset: -2px; }
+.nai-canvas-background-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  background: conic-gradient(currentColor 25%, transparent 0 50%, currentColor 0 75%, transparent 0) 0 0 / 8px 8px;
+}
+.nai-canvas-background-grid { display: grid; flex: 0 0 124px; grid-template-columns: repeat(4, 28px); gap: 4px; padding-block: 2px; }
+.theme-official .nai-canvas-background-grid button {
+  display: block;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 1px solid #50536b;
+  border-radius: 3px;
+  background: var(--paper);
+  box-shadow: none;
+}
+.theme-official .nai-canvas-background-grid button:hover { border-color: var(--ink); }
+.theme-official .nai-canvas-background-grid button[aria-pressed="true"] { outline: 2px solid var(--yellow); outline-offset: -2px; box-shadow: inset 0 0 0 3px var(--surface); }
+.theme-official .nai-canvas-background-grid button:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+.theme-official .nai-canvas-background-grid button[data-background="checker"] { background: conic-gradient(#888 25%, #bbb 0 50%, #888 0 75%, #bbb 0) 0 0 / 12px 12px; }
+.theme-official .nai-canvas-background-grid button[data-background="light-checker"] { background: conic-gradient(#ddd 25%, #fff 0 50%, #ddd 0 75%, #fff 0) 0 0 / 12px 12px; }
+.theme-official .nai-canvas-background-grid button[data-background="dark-checker"] { background: conic-gradient(#292c45 25%, #13152c 0 50%, #292c45 0 75%, #13152c 0) 0 0 / 12px 12px; }
+.theme-official .nai-canvas-background-grid button[data-background="none"] { background: linear-gradient(135deg, transparent 44%, #b17483 46% 54%, transparent 56%), var(--paper); }
+.theme-official .nai-canvas-background-grid button[data-background="black"] { background: #000; }
+.theme-official .nai-canvas-background-grid button[data-background="white"] { background: #fff; }
+.theme-official .nai-canvas-background-grid button[data-background="gray"] { background: #808080; }
+.theme-official .nai-canvas-background-grid button[data-background="red"] { background: #f00; }
+.theme-official .nai-canvas-background-grid button[data-background="green"] { background: #0f0; }
+.theme-official .nai-canvas-background-grid button[data-background="blue"] { background: #00f; }
+@container nai-canvas (max-width: 700px) {
+  .nai-shell .nai-canvas-control.nai-canvas-seed { display: none; }
+  .nai-canvas-corners { justify-content: flex-end; }
+}
+@container nai-canvas (max-width: 500px) {
+  .nai-canvas-dimensions,
+  .nai-canvas-dimensions-divider { display: none; }
+}
+@media (max-width: 700px) {
+  .nai-canvas-toolbar-anchor { top: 6px; padding: 0 46px; }
+  .nai-canvas-corners { padding-block: 6px; }
+}

@@ -1,0 +1,53 @@
+.nai-output-viewport {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  isolation: isolate;
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+  outline: none;
+}
+.nai-output-viewport.is-dragging { cursor: grabbing; }
+.nai-output-viewport:focus-visible { outline: 1px solid #f5f3c244; outline-offset: -1px; }
+.nai-output-world { position: absolute; top: 0; left: 0; width: 1px; height: 1px; transform-origin: 0 0; }
+.nai-world-entry { position: absolute; }
+.nai-world-selectable,
+.nai-world-image { width: 100%; height: 100%; }
+.nai-world-selectable { outline: none; }
+.nai-world-selectable:focus-visible { outline: calc(2px / var(--output-scale)) solid #f5f3c2; }
+.nai-world-image { position: relative; overflow: hidden; border-radius: 3px; background-color: #17192c; }
+.nai-world-image > img { display: block; width: 100%; height: 100%; max-width: none; max-height: none; object-fit: contain; -webkit-user-drag: none; }
+.nai-world-image > .encoded-file { width: 100%; height: 100%; font-size: calc(14px / var(--output-scale)); }
+.nai-world-image:not(.is-ready) > img { visibility: hidden; }
+.nai-world-entry.is-selected .nai-world-image { box-shadow: 0 0 0 calc(1px / var(--output-scale)) #8e92b01c; }
+.nai-world-decoration,
+.nai-world-local-decoration { position: absolute; z-index: -1; pointer-events: none; }
+.nai-world-local-decoration { inset: -260px -360px; }
+.nai-world-decoration .nai-canvas-backdrop g,
+.nai-world-local-decoration .nai-canvas-backdrop g { stroke-width: calc(1px / var(--output-scale)); }
+.nai-world-image-loading,
+.nai-world-image-error { position: absolute; inset: 0; display: grid; place-items: center; color: #a6a8bf; font-size: calc(13px / var(--output-scale)); }
+.nai-world-image-loading::after { content: ''; width: calc(8px / var(--output-scale)); height: calc(8px / var(--output-scale)); border-radius: 50%; background: #a6a8bf; }
+.nai-world-caption { position: absolute; bottom: 7px; left: 50%; transform: translateX(-50%); color: #868ba7; font-size: 11px; pointer-events: none; }
+.nai-output-viewport[data-transparency="checker"] .nai-world-image,
+.nai-output-viewport[data-transparency="light-checker"] .nai-world-image,
+.nai-output-viewport[data-transparency="dark-checker"] .nai-world-image {
+  background-image: conic-gradient(var(--checker-a) 25%, var(--checker-b) 0 50%, var(--checker-a) 0 75%, var(--checker-b) 0);
+  background-size: calc(16px / var(--output-scale)) calc(16px / var(--output-scale));
+}
+.nai-output-viewport[data-transparency="checker"] { --checker-a: #34374a; --checker-b: #505369; }
+.nai-output-viewport[data-transparency="light-checker"] { --checker-a: #ddd; --checker-b: #fff; }
+.nai-output-viewport[data-transparency="dark-checker"] { --checker-a: #111; --checker-b: #333; }
+.nai-output-viewport[data-transparency="none"] .nai-world-image { background: transparent; }
+.nai-output-viewport[data-transparency="black"] .nai-world-image { background: #000; }
+.nai-output-viewport[data-transparency="white"] .nai-world-image { background: #fff; }
+.nai-output-viewport[data-transparency="gray"] .nai-world-image { background: #888; }
+.nai-output-viewport[data-transparency="red"] .nai-world-image { background: #f00; }
+.nai-output-viewport[data-transparency="green"] .nai-world-image { background: #0f0; }
+.nai-output-viewport[data-transparency="blue"] .nai-world-image { background: #00f; }
+.nai-world-image .nai-generation-frame rect { fill: #191b31; }
+.nai-world-image .nai-generation-dots { gap: calc(12px / var(--output-scale)); }
+.nai-world-image .nai-generation-dots > i { width: calc(12px / var(--output-scale)); height: calc(12px / var(--output-scale)); }

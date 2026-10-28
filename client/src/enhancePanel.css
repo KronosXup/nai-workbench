@@ -1,0 +1,84 @@
+.nai-enhance-anchor {
+  position: absolute;
+  z-index: 40;
+  right: 0;
+  bottom: 10px;
+  left: 0;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+  pointer-events: none;
+}
+.nai-enhance-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(560px, 100%);
+  max-height: calc(100dvh - 80px);
+  padding: 12px 16px 14px;
+  overflow-y: auto;
+  border: 1px solid var(--nai-line);
+  border-radius: 4px;
+  color: var(--nai-text);
+  background: var(--nai-card);
+  box-shadow: 0 0 15px #00000059;
+  pointer-events: auto;
+  animation: nai-enhance-enter 180ms cubic-bezier(.22, 1, .36, 1);
+}
+.nai-enhance-heading { display: flex; align-items: center; gap: 10px; }
+.nai-enhance-heading h2 { overflow: hidden; margin: 0; font-family: inherit; font-size: 18px; font-weight: 700; line-height: 1.4; text-overflow: ellipsis; }
+.nai-shell .nai-enhance-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-height: 28px;
+  margin: -8px -8px -8px auto;
+  padding: 8px;
+  background: transparent;
+}
+.nai-enhance-body { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 20px; }
+.nai-enhance-scale { flex: none; min-width: 0; margin: 0; padding: 0; border: 0; }
+.nai-enhance-scale legend { margin: 0 0 8px; padding: 0; }
+.nai-enhance-scale-options { display: flex; gap: 1px; }
+.nai-enhance-scale-option { position: relative; display: flex; margin: 0; cursor: pointer; }
+.nai-shell .nai-enhance-scale-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+}
+.nai-enhance-scale-option span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 48px;
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid var(--nai-line);
+  background: var(--nai-control);
+  transition: color 130ms, background-color 130ms, border-color 130ms;
+}
+.nai-enhance-scale-option:first-child span { border-radius: 4px 0 0 4px; }
+.nai-enhance-scale-option:last-child span { border-radius: 0 4px 4px 0; }
+.nai-enhance-scale-option input[value="max"] + span { min-width: 56px; }
+.nai-enhance-scale-option input:checked + span { color: var(--nai-page); background: var(--nai-accent); border-color: var(--nai-accent); }
+.nai-enhance-scale-option:has(input:not(:disabled)):hover span { border-color: var(--nai-accent); }
+.nai-enhance-scale-option:has(input:disabled) { opacity: .4; cursor: default; }
+.nai-enhance-scale-option input:focus-visible + span { outline: 2px solid var(--nai-accent); outline-offset: 2px; }
+.nai-enhance-size { display: block; margin-top: 6px; color: var(--nai-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.nai-enhance-adjustments { display: flex; flex: 1 1 240px; flex-direction: column; min-width: 0; gap: 4px; }
+.nai-enhance-sliders { display: flex; align-items: flex-start; gap: 20px; animation: workbench-fade-in 150ms ease-out; }
+.nai-enhance-setting { display: flex; flex: 1 1 0; flex-direction: column; min-width: 0; gap: 8px; }
+.nai-enhance-setting label { margin: 0; }
+.nai-enhance-setting-inputs { display: flex; align-items: center; gap: 8px; }
+.nai-shell .nai-enhance-setting input[type="number"] { flex: 0 0 52px; width: 52px; padding: 4px; text-align: center; font-variant-numeric: tabular-nums; }
+.nai-shell .nai-enhance-setting input[type="range"] { flex: 1 1 0; width: 0; min-width: 32px; margin: 0; }
+.nai-shell .nai-enhance-setting input:disabled { opacity: .4; cursor: default; }
+.nai-shell .nai-enhance-advanced { align-self: flex-start; min-height: 28px; padding: 4px 0; color: var(--nai-muted); background: transparent; font-weight: 400; }
+.nai-shell .nai-enhance-advanced:hover:not(:disabled) { color: var(--nai-text); background: transparent; }
+@keyframes nai-enhance-enter { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .nai-enhance-panel { animation: none; } }

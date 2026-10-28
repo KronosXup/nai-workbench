@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ArrowLeftRight,
@@ -8,12 +8,9 @@ import {
   Check,
   Coins,
   Images,
-  Download,
-  Expand,
   FolderOpen,
   Grid2X2,
   LoaderCircle,
-  Paintbrush,
   Settings2,
   SlidersHorizontal,
   Sprout,
@@ -21,7 +18,7 @@ import {
   PawPrint,
   X,
 } from "lucide-react";
-import type { Capabilities, Draft, LocalImage, Operation, User } from "./types";
+import type { Capabilities, Draft, Job, LocalImage, Operation, User } from "./types";
 import { labels } from "./types";
 import { hasTransparentBackground, setTransparentBackground } from "./promptTags";
 import type { ConfigurationIssue, QuoteError } from "./taskValidation";
@@ -37,7 +34,14 @@ import TagInput from "./TagInput";
 import type { TagSuggestion } from "./TagInput";
 import NaiSelect from "./NaiSelect";
 import { composePrompts } from "./promptPresets";
+import CanvasToolbar from "./CanvasToolbar";
+import EnhancePanel from './EnhancePanel';
+import type { EnhanceSettings } from './EnhancePanel';
+import type { CanvasTransparencyBackground } from "./CanvasToolbar";
+import OutputCanvas from "./OutputCanvas";
+import GenerationProgress, { GenerationPlaceholder } from "./GenerationFeedback";
 
+type DrawingJob = Job & { preview?: { image: string; media_type: string; step?: number } };
 type Props = {
   draft: Draft;
   patch: (value: Partial<Draft>) => void;
@@ -46,7 +50,6 @@ type Props = {
   operations?: Operation[];
   user: User;
   busy: boolean;
-  pending: number;
   quote: {
     units: number;
     generation_units?: number;
@@ -65,6 +68,7 @@ type Props = {
   onResetGenerationSettings: () => void;
   references: ReactNode;
   rows: LocalImage[];
+  jobs?: DrawingJob[];
   selected?: LocalImage;
   select: (row: LocalImage) => void;
   renderImage: (row: LocalImage) => ReactNode;
@@ -72,17 +76,22 @@ type Props = {
   onLibrary: () => void;
   onNegativeLibrary: () => void;
   onFinal: () => void;
-  onQueue: () => void;
   onPage: (page: "draw" | "batch" | "gallery" | "settings") => void;
   mobile: "edit" | "result";
   onMobileChange: (view: "edit" | "result") => void;
   onEnlarge: () => void;
   onReuse: () => void;
   onVariations: () => void;
+  onEnhance: () => void;
+  enhance?: { settings: EnhanceSettings; scales: {value:number|'max';label:string;disabled?:boolean;title?:string}[]; width:number; height:number };
+  onEnhanceChange: (patch: Partial<EnhanceSettings>) => void;
+  onEnhanceClose: () => void;
+  toolbarPrices?: Partial<Record<'variations'|'upscale', {value:number;unit:string}>>;
   onEditSelected: (row: LocalImage) => void;
   onPixelSelected: (row: LocalImage) => void;
   onUseAs: (operation: "img2img" | "vibe" | "character" | "inpaint" | "upscale" | "augment") => void;
   onSave: () => void;
+  onCopyImage?: () => void;
   onSuggestTags?: (model: string, fragment: string) => Promise<TagSuggestion[]>;
 };
 
@@ -127,6 +136,23 @@ export default function OfficialWorkspace(p: Props) {
   const [auxiliary, setAuxiliary] = useState(false);
   const [promptTools, setPromptTools] = useState(false);
   const [positionsOpen, setPositionsOpen] = useState(false);
+  const [showLiveGeneration, setShowLiveGeneration] = useState(true);
+  const [readyResultId, setReadyResultId] = useState<string>();
+  const [pinnedRows, setPinnedRows] = useState<LocalImage[]>([]);
+  const [canvasFocusRevision, setCanvasFocusRevision] = useState(0);
+  const [allowUpscale, setAllowUpscale] = useState(() => localStorage.getItem('nai-wb-canvas-scale-up') !== 'false');
+  const [transparencyBackground, setTransparencyBackground] = useState<CanvasTransparencyBackground>(() => {
+    const value = localStorage.getItem('nai-wb-canvas-background');
+    return ['checker','light-checker','dark-checker','none','black','white','gray','red','green','blue'].includes(value ?? '') ? value as CanvasTransparencyBackground : 'checker';
+  });
+  const activeJob = p.jobs?.find(job => job.status === 'running');
+  const generationJob = activeJob ?? p.jobs?.filter(job => job.started_at)
+    .reduce<DrawingJob | undefined>((latest, job) => !latest || (job.started_at ?? 0) > (latest.started_at ?? 0) ? job : latest, undefined);
+  const displayPreview = showLiveGeneration ? p.preview : undefined;
+  const showPending = Boolean(activeJob && showLiveGeneration && !displayPreview);
+  useEffect(() => {
+    if (activeJob) { setShowLiveGeneration(true); setPositionsOpen(false); }
+  }, [activeJob?.id, activeJob?.started_at]);
   useEffect(() => {
     if (!usesGenerationSettings(p.draft.operation) || (!p.draft.model.startsWith('nai-diffusion-4') && !p.draft.model.startsWith('nai-diffusion-5'))) setPositionsOpen(false);
   }, [p.draft.model, p.draft.operation]);
@@ -144,6 +170,7 @@ export default function OfficialWorkspace(p: Props) {
     if (sourceImage) {
       setPositionsOpen(false);
       setWelcome(false);
+      if (showSource) setCanvasFocusRevision(value => value + 1);
     }
   }, [sourceImage]);
   useEffect(() => {
@@ -154,7 +181,7 @@ export default function OfficialWorkspace(p: Props) {
       setPositionsOpen(false);
     }
   }, [p.selected?.id]);
-  const hasPreview = Boolean(p.preview);
+  const hasPreview = Boolean(displayPreview);
   useEffect(() => {
     // Switch on the first preview, not every frame, so the editor can be reopened.
     if (hasPreview) setPositionsOpen(false);
@@ -168,8 +195,8 @@ export default function OfficialWorkspace(p: Props) {
   const customSizes = params.width === params.height
     ? [[params.width, params.height]]
     : [[params.width, params.height], [params.height, params.width]];
-  const generation = usesGenerationSettings(p.draft.operation);
-  const effectiveModel = effectiveModelForOperation(p.draft.model, p.draft.operation);
+  const generation = Boolean(p.enhance) || usesGenerationSettings(p.draft.operation);
+  const effectiveModel = effectiveModelForOperation(p.draft.model, p.enhance ? 'img2img' : p.draft.operation);
   const samplers = samplersFor(effectiveModel);
   const furryMode = p.draft.model.endsWith('-3')
     ? p.draft.model.includes('furry')
@@ -213,6 +240,8 @@ export default function OfficialWorkspace(p: Props) {
     requestAnimationFrame(() => document.getElementById((target === 'settings' ? 'nai-generation-settings' : `nai-${target}-settings`))?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
   }
   const selected = welcome ? undefined : p.selected;
+  useLayoutEffect(() => { setReadyResultId(undefined); },
+    [selected?.id, showPending, showSource, positionsOpen, Boolean(displayPreview)]);
   useEffect(() => {
     setWelcome(false);
   }, [p.selected?.id, p.preview]);
@@ -221,6 +250,7 @@ export default function OfficialWorkspace(p: Props) {
       lastBlankSignal.current = p.blankCanvasSignal ?? 0;
       if (p.blankCanvasSignal) {
         setWelcome(true);
+        setShowLiveGeneration(false);
         setShowSource(false);
         setPositionsOpen(false);
       }
@@ -228,8 +258,28 @@ export default function OfficialWorkspace(p: Props) {
   }, [p.blankCanvasSignal]);
   const transparent = hasTransparentBackground(p.draft.prompt);
   const supportsTransparency = effectiveModel.startsWith("nai-diffusion-5");
-  const canUseResult = Boolean(selected) && !p.preview && !showSource;
-  const quoteUnits = p.quote ? (p.quote.generation_units ?? p.quote.units) * p.draft.count + (p.quote.encoding_units ?? 0) : 0;
+  const canUseResult = Boolean(selected) && readyResultId === selected?.id && !displayPreview && !showSource && !showPending;
+  const outputJob = showLiveGeneration && activeJob ? activeJob : selected?.job;
+  const outputParams = showSource ? params : outputJob?.parameters ?? params;
+  const outputMetadata = !showSource && !(showLiveGeneration && activeJob) ? selected?.result.metadata : undefined;
+  const outputInfo = {
+    width: typeof outputMetadata?.width === 'number' ? outputMetadata.width : outputParams.width,
+    height: typeof outputMetadata?.height === 'number' ? outputMetadata.height : outputParams.height,
+    seed: Number.isInteger(outputParams.seed) && outputParams.seed >= 0 ? outputParams.seed : undefined,
+  };
+  function selectHistory(row: LocalImage) {
+    setWelcome(false); setShowLiveGeneration(false); setShowSource(false); setPositionsOpen(false);
+    setCanvasFocusRevision(value => value + 1); p.select(row);
+  }
+  function showLive() {
+    setShowLiveGeneration(true); setShowSource(false); setPositionsOpen(false);
+    setCanvasFocusRevision(value => value + 1);
+  }
+  function togglePin() {
+    if (!canUseResult || !selected) return;
+    setPinnedRows(rows => rows.some(row => row.id === selected.id) ? rows.filter(row => row.id !== selected.id) : [...rows, selected]);
+  }
+  const quoteUnits = p.quote ? (p.quote.generation_units ?? p.quote.units) * (p.enhance ? 1 : p.draft.count) + (p.quote.encoding_units ?? 0) : 0;
   const usesV5 = Boolean(p.quote?.unit_label.includes("V5"));
   const quoteLabel = usesV5 ? `${quoteUnits} V5 单位` : `${quoteUnits} 积分`;
   const quoteTitle = p.quote
@@ -445,7 +495,9 @@ export default function OfficialWorkspace(p: Props) {
             onSuggestTags={p.draft.tagSuggestionsDisabled || tagSuggestionsUnavailable ? undefined : p.onSuggestTags ? (_model, fragment) => p.onSuggestTags!(tagModel, fragment) : undefined}
           />
           </>}
-          {!generation && <section className="nai-prompt-card"><h2>{labels[p.draft.operation]}</h2><button onClick={p.onFinal}>查看发送内容</button></section>}
+          {!generation && <section className="nai-prompt-card"><h2>{labels[p.draft.operation]}</h2>{p.draft.operation === 'upscale'
+            ? <button onClick={() => p.patch({operation:params.image ? 'img2img' : 'generate'})}>返回绘图</button>
+            : <button onClick={p.onFinal}>查看发送内容</button>}</section>}
           {p.references}
           <section id="nai-generation-settings" className="nai-resolution">
             {generation && <>
@@ -530,6 +582,7 @@ export default function OfficialWorkspace(p: Props) {
             patch={changes => p.patch({parameters:{...params,...changes}})}
             onSampler={selectSampler} onReset={p.onResetGenerationSettings} onClose={() => setAdvanced(false)}/>}
           {generation && !advanced && <div className="nai-parameter-summary">
+            <div className="nai-parameter-fields">
             <label>
               步数
               {number(
@@ -584,20 +637,21 @@ export default function OfficialWorkspace(p: Props) {
                 menuWidth={230}
               />
             </div>
+            </div>
             <button
               className="nai-expand-settings"
               aria-label={advanced ? "收起生成参数" : "展开生成参数"}
               aria-expanded={advanced}
               onClick={() => setAdvanced(!advanced)}
             >
-              <ChevronRight size={23} />
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 3a1 1 0 0 1 1.7-.7l8 9a1 1 0 0 1 0 1.4l-8 9A1 1 0 0 1 7 21Z" /></svg>
             </button>
           </div>
           }
-          <button className="nai-generate" title={quoteTitle} disabled={p.busy || blocked} onClick={p.submit}>
+          <button className="nai-generate" title={quoteTitle} disabled={p.busy || blocked || !p.quote || Boolean(p.enhance && activeJob)} onClick={p.submit}>
             <strong>
               {p.busy ? <LoaderCircle size={17} className="spin" /> : null}
-              {p.draft.operation === "generate"
+              {p.enhance ? 'Enhance!' : p.draft.operation === "generate"
                 ? `生成 ${p.draft.count} 张图片`
                 : `${labels[p.draft.operation]} · ${p.draft.count} 张`}
             </strong>
@@ -625,7 +679,37 @@ export default function OfficialWorkspace(p: Props) {
           )}
         </footer>
       </aside>
-      <section className="nai-main">
+      <section className={`nai-main${positionsOpen ? ' is-positioning' : ''}${pinnedRows.length ? ' has-pins' : ''}`}>
+        {!positionsOpen && <>
+          <CanvasToolbar info={outputInfo} hasImage={Boolean(selected) && !showSource} enhancing={Boolean(p.enhance)}
+            allowUpscale={allowUpscale} onAllowUpscaleChange={value => { setAllowUpscale(value); localStorage.setItem('nai-wb-canvas-scale-up', String(value)); }}
+            transparencyBackground={transparencyBackground} showTransparencyControls={supportsTransparency}
+            onTransparencyBackgroundChange={value => { setTransparencyBackground(value); localStorage.setItem('nai-wb-canvas-background', value); }}
+            onUseSeed={() => { if (outputInfo.seed !== undefined) p.setParam('seed', outputInfo.seed); }}
+            onCopyImage={p.onCopyImage} onPin={togglePin} pinned={canUseResult && pinnedRows.some(row => row.id === selected?.id)} actions={{
+            enhance: {onClick:p.onEnhance, disabled:!canUseResult || p.busy || !selected || !['generate','img2img','inpaint'].includes(selected.job.operation) || outputInfo.width % 64 !== 0 || outputInfo.height % 64 !== 0 || Boolean(p.operations && !p.operations.includes('img2img'))},
+            variations: {onClick:p.onVariations, price:p.toolbarPrices?.variations, disabled:!canUseResult || p.busy || !selected || !['generate','img2img','inpaint'].includes(selected.job.operation) || Boolean(p.operations && !p.operations.includes('img2img'))},
+            upscale: {onClick:() => p.onUseAs('upscale'), price:p.toolbarPrices?.upscale, disabled:!canUseResult || p.busy || outputInfo.width * outputInfo.height > 3145728 || Boolean(p.operations && !p.operations.includes('upscale'))},
+            edit: {onClick:() => selected && p.onEditSelected(selected), disabled:!canUseResult},
+            pixel: {onClick:() => selected && p.onPixelSelected(selected), disabled:!canUseResult},
+            img2img: {onClick:() => p.onUseAs('img2img'), disabled:!canUseResult},
+            vibe: {onClick:() => p.onUseAs('vibe'), disabled:!canUseResult || p.models.find(m => m.id === effectiveModel)?.vibe_transfer === false},
+            reference: {onClick:() => p.onUseAs('character'), disabled:!canUseResult || p.models.find(m => m.id === effectiveModel)?.precise_reference !== true},
+            reuse: {onClick:p.onReuse, disabled:!canUseResult},
+            inpaint: {onClick:() => p.onUseAs('inpaint'), hidden:Boolean(p.operations && !p.operations.includes('inpaint')), disabled:!canUseResult},
+            director: {onClick:() => p.onUseAs('augment'), disabled:!canUseResult || Boolean(p.operations && !p.operations.includes('augment'))},
+            save: {onClick:p.onSave, disabled:!canUseResult},
+            enlarge: {onClick:p.onEnlarge, disabled:!canUseResult},
+          }} />
+          {p.enhance && <EnhancePanel {...p.enhance} busy={p.busy || Boolean(activeJob)} onChange={p.onEnhanceChange} onClose={p.onEnhanceClose} />}
+          <GenerationProgress job={generationJob} recentJobs={p.rows.map(row => row.job)} />
+          {pinnedRows.length > 0 && <aside className="nai-pinned-images" aria-label="固定图片">
+            {pinnedRows.map(row => <div key={row.id}>
+              <button className="nai-pinned-image" aria-label={`查看固定图片 ${row.id.slice(0,6)}`} onClick={() => selectHistory(row)}>{p.renderImage(row)}</button>
+              <button className="nai-unpin-image" aria-label={`取消固定 ${row.id.slice(0,6)}`} onClick={() => setPinnedRows(rows => rows.filter(image => image.id !== row.id))}><X size={14} /></button>
+            </div>)}
+          </aside>}
+        </>}
         {!positionsOpen && !history && (
           <button
             className="nai-open-history"
@@ -635,73 +719,16 @@ export default function OfficialWorkspace(p: Props) {
             <Clock size={25} />
           </button>
         )}
-        {p.pending > 0 && (
-          <button className="nai-queue-indicator" onClick={p.onQueue}>
-            <LoaderCircle size={14} className="spin" />
-            {p.pending} 项任务
-          </button>
-        )}
         {positionsOpen && generation ? <CharacterPositions
           characters={params.character_prompts} width={params.width} height={params.height} model={effectiveModel}
           onChange={characters => p.setParam("character_prompts", characters)}
           onClose={() => { setPositionsOpen(false); setMobile('edit'); }}
-        /> : showSource && params.image && !p.preview ? (
-          <><div className="nai-stage"><img src={`data:image/png;base64,${params.image}`} alt="当前源图片"/><span className="nai-output-label">当前源图片</span></div>{selected && <button onClick={() => setShowSource(false)}>查看生成结果</button>}</>
-        ) : selected || p.preview ? (
-          <>
-            <div className={`nai-stage${!generation && params.image && !p.preview ? " tool-comparison" : ""}`} onDoubleClick={canUseResult ? p.onEnlarge : undefined}>
-              {!generation && params.image && !p.preview && <img src={`data:image/png;base64,${params.image}`} alt="处理前源图片"/>}
-              {p.preview ? <img src={`data:${p.preview.media_type};base64,${p.preview.image}`} alt="生成中的临时预览"/> : selected && p.renderImage(selected)}
-              {p.preview && <span className="nai-output-label">生成中{p.preview.step ? ` · ${p.preview.step}` : ""}</span>}
-              {selected?.result.metadata.mock === true && !p.preview && <span className="nai-output-label">模拟输出 · 不是真实生图</span>}
-            </div>
-            <div className="nai-image-actions" aria-label={p.preview ? "等待最终图片后可操作" : "图片操作"}>
-              <button disabled={!canUseResult || p.busy || !selected || !['generate','img2img','inpaint'].includes(selected.job.operation) || Boolean(p.operations && !p.operations.includes('img2img'))}
-                title="使用当前图片生成 3 张变体" onClick={p.onVariations}>
-                <Grid2X2 size={16} />生成变体
-              </button>
-              <button disabled={!canUseResult} onClick={p.onEnlarge} aria-label="放大查看">
-                <Expand size={17} />
-              </button>
-              <button disabled={!canUseResult} onClick={() => selected && p.onEditSelected(selected)}>
-                <Paintbrush size={16} />
-                画布编辑
-              </button>
-              <button disabled={!canUseResult} onClick={() => selected && p.onPixelSelected(selected)}>
-                本地像素整理
-              </button>
-              <button disabled={!canUseResult} onClick={() => p.onUseAs("img2img")}>用作图生图</button>
-              <button disabled={!canUseResult || p.models.find(m => m.id === effectiveModel)?.vibe_transfer === false} onClick={() => p.onUseAs("vibe")}>用作 Vibe</button>
-              <button disabled={!canUseResult || p.models.find(m => m.id === effectiveModel)?.precise_reference !== true} onClick={() => p.onUseAs("character")}>用作精准参考</button>
-              <button disabled={!canUseResult} onClick={p.onReuse}>
-                <SlidersHorizontal size={16} />
-                回填
-              </button>
-              <button disabled={!canUseResult || Boolean(p.operations && !p.operations.includes("inpaint"))} onClick={() => p.onUseAs("inpaint")}>
-                <Paintbrush size={16} />
-                重绘
-              </button>
-              <button disabled={!canUseResult || Boolean(p.operations && !p.operations.includes('upscale'))} title="2 倍放大" onClick={() => p.onUseAs("upscale")}>
-                <Expand size={16} />
-                放大
-              </button>
-              <button disabled={!canUseResult || Boolean(p.operations && !p.operations.includes('augment'))} title="线稿、上色、表情与背景等处理" onClick={() => p.onUseAs("augment")}>
-                <Settings2 size={16} />
-                导演工具
-              </button>
-              <button disabled={!canUseResult} onClick={p.onSave}>
-                <Download size={16} />
-                保存
-              </button>
-            </div>
-          </>
-        ) : (
-          <div
-            className="nai-empty-canvas"
-            role="img"
-            aria-label="空白画布，生成的图片将显示在这里"
-          />
-        )}
+        /> : <OutputCanvas rows={p.rows} selected={selected} liveJob={activeJob} preview={p.preview}
+          focusLive={showLiveGeneration && Boolean(activeJob)} blank={!selected && !(showLiveGeneration && activeJob) && !showSource}
+          focusRevision={canvasFocusRevision} allowUpscale={allowUpscale} transparencyBackground={transparencyBackground}
+          source={showSource && params.image ? {image:params.image, width:params.width, height:params.height} : undefined}
+          compareSource={!generation && params.image && !showSource && !showPending && !displayPreview ? {image:params.image, width:params.width, height:params.height} : undefined}
+          onSelect={selectHistory} onShowLive={showLive} onReady={setReadyResultId} renderImage={p.renderImage} />}
       </section>
       {history && (
         <aside className="nai-history">
@@ -712,23 +739,20 @@ export default function OfficialWorkspace(p: Props) {
             </button>
           </div>
           <div className="nai-history-strip">
+            {activeJob && <button className={`nai-history-pending${showLiveGeneration ? ' selected' : ''}`} aria-label="查看正在生成的图片" onClick={showLive}>
+              {p.preview ? <img src={`data:${p.preview.media_type};base64,${p.preview.image}`} alt="生成中的临时预览" /> : <GenerationPlaceholder compact width={activeJob.parameters.width} height={activeJob.parameters.height} />}
+            </button>}
             {p.rows.slice(0, 40).map((row) => (
               <button
                 key={row.id}
                 aria-label={`查看 ${row.job.label} ${row.id.slice(0, 6)}`}
-                className={selected?.id === row.id ? "selected" : ""}
-                onClick={() => {
-                  setWelcome(false);
-                  // Re-selecting the same image still means leaving the editor/source view.
-                  setShowSource(false);
-                  setPositionsOpen(false);
-                  p.select(row);
-                }}
+                className={!showPending && !displayPreview && selected?.id === row.id ? "selected" : ""}
+                onClick={() => selectHistory(row)}
               >
                 {p.renderImage(row)}
               </button>
             ))}
-            {!p.rows.length && <p>生成的图片会显示在这里。</p>}
+            {!p.rows.length && !activeJob && <p>生成的图片会显示在这里。</p>}
           </div>
           <button
             className="nai-history-gallery"

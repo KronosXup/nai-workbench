@@ -1749,7 +1749,7 @@ svg {
   font-size: 14px;
   color: var(--ink);
 }
-.theme-official .login-form input {
+.theme-official .login-form input:not([type="checkbox"]) {
   width: 100%;
   height: 48px;
   padding: 0 14px;
@@ -1757,12 +1757,14 @@ svg {
   background: var(--card);
   border-color: var(--line);
 }
-.login-form .login-help {
-  margin: -5px 0 4px;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--muted);
+.login-remember {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  cursor: pointer;
 }
+.login-remember input { margin: 3px 0 0; }
 .login-form > .primary {
   width: 100%;
   min-height: 46px;
@@ -2620,7 +2622,7 @@ svg {
 .theme-official .queue-drawer,
 .theme-official .modal { background: var(--surface); color: var(--ink); font-size: 14px; box-shadow: 0 12px 36px #08091866; }
 .theme-official .queue-drawer { width: min(400px, 100vw); border-left: 1px solid var(--line); }
-.theme-official .modal { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; animation: none; }
+.theme-official .modal { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; animation: workbench-panel-in 180ms cubic-bezier(.22,1,.36,1); }
 .theme-official .queue-drawer > header,
 .theme-official .modal > header { flex-shrink: 0; min-height: 64px; padding: 14px 16px; background: var(--surface); color: var(--ink); border-bottom: 1px solid var(--line); }
 .theme-official .queue-drawer header small,
@@ -3428,6 +3430,49 @@ svg {
   .canvas-actions button {
     min-height: 34px;
   }
+}
+.theme-official > :is(.nai-shell,.director-workspace,.batch-page,.gallery-page,.settings-page) {
+  animation: workbench-fade-in 170ms ease-out;
+}
+.theme-official .drawer-backdrop,
+.theme-official .modal-backdrop {
+  animation: workbench-fade-in 150ms ease-out;
+}
+.theme-official .queue-drawer {
+  animation: workbench-drawer-in 220ms cubic-bezier(.22,1,.36,1);
+}
+.theme-official button,
+.theme-official .button {
+  transition: background-color 130ms, color 130ms, border-color 130ms, box-shadow 130ms, scale 110ms ease-out;
+}
+.theme-official button:active:not(:disabled),
+.theme-official .button:active { scale: .97; }
+.theme-official input:not([type="range"]),
+.theme-official textarea { transition: background-color 130ms, border-color 130ms, box-shadow 130ms; }
+.theme-official input[type="range"] { transition: filter 120ms; }
+.theme-official input[type="range"]:active:not(:disabled) { filter: brightness(1.15); }
+.theme-official :is(button[role="checkbox"][aria-checked="true"] > svg, input[type="checkbox"]:checked) {
+  animation: workbench-check-in 150ms ease-out;
+}
+.theme-official :is(.nai-advanced, .nai-parameter-summary, .nai-settings-extra, .nai-settings-compatibility) {
+  animation: workbench-fade-in 150ms ease-out;
+}
+.theme-official :is(.nai-auxiliary > summary, .nai-more-settings) svg { transition: transform 150ms ease-out; }
+@keyframes workbench-check-in {
+  from { opacity: .5; scale: .82; }
+  to { opacity: 1; scale: 1; }
+}
+@keyframes workbench-fade-in {
+  from { opacity: .35; }
+  to { opacity: 1; }
+}
+@keyframes workbench-panel-in {
+  from { opacity: 0; transform: translateY(5px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes workbench-drawer-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   *,

@@ -70,6 +70,7 @@
 .nai-shell .nai-ri-reference-actions { display: flex; align-items: center; flex: none; gap: 8px; }
 .nai-shell .nai-reference-images .nai-ri-reference-actions button { width: 40px; height: 40px; padding: 4px; }
 .nai-shell .nai-ri-reference-list { display: grid; gap: 12px; min-width: 0; margin-top: 12px; }
+.nai-shell .nai-ri-export-note { margin: 12px 0 0; color: var(--nai-muted); font-size: 12px; line-height: 1.5; }
 .nai-shell .nai-ri-reference-item { display: grid; grid-template-columns: 100px minmax(0, 1fr); grid-template-rows: 1fr auto; align-items: center; gap: 8px 12px; min-width: 0; padding-top: 12px; border-top: 1px solid var(--nai-line); }
 .nai-shell .nai-ri-reference-thumb,
 .nai-shell .nai-ri-encoding-thumb { grid-column: 1; grid-row: 1; width: 100px; height: 100px; object-fit: contain; border-radius: 2px; }
