@@ -2070,6 +2070,25 @@ svg {
   align-items: center;
   padding: 0 22px 20px;
 }
+.image-execution-details {
+  z-index: 1;
+  width: min(100%, 760px);
+  max-height: 42vh;
+  overflow: auto;
+  margin: 0 auto;
+  padding: 8px 12px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.image-execution-details summary { cursor: pointer; }
+.image-execution-details table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 8px; }
+.image-execution-details th, .image-execution-details td { text-align: left; padding: 4px; overflow-wrap: anywhere; }
+.image-execution-details th:first-child { width: 22%; }
+.image-execution-details p { margin: 8px 0; }
+.image-execution-details small { color: var(--muted); }
 .lightbox > header {
   display: flex;
   width: 100%;

@@ -130,6 +130,29 @@ def image_artifact(data: bytes, filename: str = "image.png") -> Artifact:
     return Artifact(data, mime, PurePosixPath(filename).stem[:80] + suffix, dimensions)
 
 
+def read_gate_receipt(raw: str | None) -> dict | None:
+    if not raw or len(raw) > 8192:
+        return None
+    try:
+        value = json.loads(raw)
+    except (ValueError, RecursionError):
+        return None
+    if (not isinstance(value, dict) or value.get("version") != 1 or value.get("source") != "gate"
+            or not isinstance(value.get("parameters"), dict) or not isinstance(value.get("cost"), dict)
+            or type(value.get("completed_images")) is not int or value["completed_images"] < 0
+            or not all(type(value["cost"].get(k)) in (int, float) and math.isfinite(value["cost"][k])
+                       and value["cost"][k] >= 0 for k in ("anlas", "v5", "legacy_free_images"))):
+        return None
+    names = ("width", "height", "steps", "sampler", "seed", "scale", "cfg_rescale", "strength", "noise",
+             "noise_schedule", "upscaled_enhance", "req_type", "defry")
+    return {"version": 1, "source": "gate", "model": value.get("model") if isinstance(value.get("model"), str) else None,
+            "operation": value.get("operation") if isinstance(value.get("operation"), str) else None,
+            "parameters": {k: value["parameters"][k] for k in names if k in value["parameters"]
+                           and type(value["parameters"][k]) in (str, int, float, bool)},
+            "completed_images": value["completed_images"],
+            "cost": {k: value["cost"][k] for k in ("anlas", "v5", "legacy_free_images")}}
+
+
 def unpack_images(data: bytes) -> list[Artifact]:
     if len(data) > MAX_RESPONSE:
         raise AdapterError("result_too_large", "上游结果超过保存限制", uncertain=True)
@@ -359,7 +382,8 @@ class NaiAdapter:
             base_url=settings.nai_base_url.rstrip("/"),
             timeout=httpx.Timeout(settings.upstream_timeout, connect=15),
             follow_redirects=False,
-            headers={"Authorization": f"Bearer {settings.nai_token}", "User-Agent": "NAI-Workbench/0.1"},
+            headers={"Authorization": f"Bearer {settings.nai_token}", "User-Agent": "NAI-Workbench/0.1",
+                     **({"x-nai-gate-receipt": "1"} if gate_mode else {})},
             transport=transport,
         )
 
@@ -384,7 +408,9 @@ class NaiAdapter:
                     data = composite_result(inpaint_source, inpaint_mask, artifact.data)
                 except ValueError as exc:
                     raise AdapterError("invalid_inpaint_result", str(exc), uncertain=True) from exc
-                finished.append(image_artifact(data, artifact.filename))
+                result = image_artifact(data, artifact.filename)
+                result.metadata.update({key: value for key, value in artifact.metadata.items() if key not in {"width", "height"}})
+                finished.append(result)
             return finished
 
         async def preview_image(value: dict):
@@ -435,6 +461,12 @@ class NaiAdapter:
                         raise AdapterError("result_too_large", "上游结果超过保存限制", uncertain=True)
                     parts.append(chunk)
                 data = b"".join(parts)
+                receipt = read_gate_receipt(response.headers.get("x-nai-gate-receipt")) if self.gate_mode else None
+                def with_receipt(artifacts):
+                    if receipt:
+                        for artifact in artifacts:
+                            artifact.metadata["gate_receipt"] = receipt
+                    return artifacts
                 if job["operation"] == "encode_vibe":
                     if not data:
                         raise AdapterError("empty_result", "NAI 没有返回编码", uncertain=True)
@@ -454,8 +486,8 @@ class NaiAdapter:
                         raise AdapterError("invalid_result", "NAI 返回的结果不完整", uncertain=True) from exc
                     if not isinstance(payload, dict) or payload.get("error") or payload.get("final") is not True or not payload.get("image"):
                         raise AdapterError("missing_final", "NAI 未返回明确的完整最终图片", uncertain=True)
-                    return finish_images(unpack_images(decode_base64(payload["image"])))
-                return finish_images(unpack_images(data))
+                    return finish_images(with_receipt(unpack_images(decode_base64(payload["image"]))))
+                return finish_images(with_receipt(unpack_images(data)))
         except AdapterError:
             raise
         except httpx.ConnectError as exc:
@@ -468,9 +500,10 @@ class NaiAdapter:
     async def _read_stream(self, response, on_preview) -> list[Artifact]:
         event_name, data_lines, total = "", [], 0
         final: list[Artifact] = []
+        receipt = None
 
         async def consume() -> bool:
-            nonlocal final
+            nonlocal final, receipt
             if not data_lines:
                 return False
             raw = "\n".join(data_lines)
@@ -483,6 +516,9 @@ class NaiAdapter:
             if not isinstance(payload, dict):
                 raise AdapterError("invalid_stream", "NAI 流式结果格式无效", uncertain=True)
             kind = (payload.get("event_type") or payload.get("event")) if event_name in {"", "message"} else event_name
+            if kind == "gate_receipt" and self.gate_mode:
+                receipt = read_gate_receipt(json.dumps(payload.get("receipt")))
+                return False
             if kind == "error" or payload.get("error"):
                 raise AdapterError("stream_error", "NAI 流式任务返回错误", uncertain=True)
             value = payload.get("image") or payload.get("document") or payload.get("b64")
@@ -544,4 +580,7 @@ class NaiAdapter:
             await consume()
         if not final:
             raise AdapterError("missing_final", "只收到预览，未收到完整最终图片；结果待确认", uncertain=True)
+        if receipt:
+            for artifact in final:
+                artifact.metadata["gate_receipt"] = receipt
         return final

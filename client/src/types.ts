@@ -64,7 +64,12 @@ export type Result = {
   expires_at: number;
   deleted: boolean;
   acknowledged: boolean;
-  metadata: Record<string, unknown>;
+  metadata: Record<string, unknown> & { gate_receipt?: {
+    version: 1; source: 'gate'; model: string | null; operation: string | null;
+    parameters: Record<string, string | number | boolean>;
+    completed_images: number;
+    cost: { anlas: number; v5: number; legacy_free_images: number };
+  } };
 };
 export type QueueWaitReason = "rpm" | "cooldown" | "key_busy" | "service_busy";
 export type Job = Task & {

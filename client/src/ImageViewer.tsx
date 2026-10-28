@@ -20,6 +20,7 @@ export default function ImageViewer({row, rows, onSelect, onClose}: {
   const pointers = useRef(new Map<number, Point>());
   const gesture = useRef<Gesture | undefined>(undefined);
   const index = rows.findIndex(item => item.id === row.id);
+  const receipt = row.result.metadata.gate_receipt;
 
   const changeZoom = (next: number) => {
     const value = clampZoom(next);
@@ -141,6 +142,23 @@ export default function ImageViewer({row, rows, onSelect, onClose}: {
       <button aria-label="放大图片" onClick={()=>changeZoom(zoomRef.current*1.25)}>＋</button>
       <button onClick={()=>downloadImage(row)}>下载原图</button>
     </header>
+    <details className="image-execution-details" key={row.id}>
+      <summary>生成详情</summary>
+      {receipt ? <>
+        <p>Gate 记账：{receipt.cost.anlas} Anlas · {receipt.cost.v5} V5 额度
+          {receipt.cost.legacy_free_images > 0 && ` · 普通免费 ${receipt.cost.legacy_free_images} 张`}</p>
+        <small>本次图像处理的 Gate 记录；不含单独的 Vibe 编码费用。</small>
+        <table><thead><tr><th>参数</th><th>请求</th><th>实际执行</th></tr></thead><tbody>
+          <tr><th>模型</th><td>{row.job.model}</td><td>{receipt.model ?? '—'}</td></tr>
+          {([['width','宽度'],['height','高度'],['steps','步数'],['sampler','采样器'],['seed','种子'],
+            ['scale','提示词引导'],['cfg_rescale','Rescale'],['strength','强度'],['noise','噪声']] as const)
+            .filter(([key]) => receipt.parameters[key] !== undefined || row.job.parameters[key] !== undefined)
+            .map(([key,label]) => <tr key={key}><th>{label}</th><td>{String(row.job.parameters[key] ?? '—')}</td>
+              <td>{String(receipt.parameters[key] ?? '—')}</td></tr>)}
+        </tbody></table>
+        <p>完成 {receipt.completed_images} 张 · 本图 {String(row.result.metadata.width)} × {String(row.result.metadata.height)}</p>
+      </> : <p>这张图片没有 Gate 执行回执。</p>}
+    </details>
     <div ref={stageRef} className="image-viewer-stage"
       onWheel={e=>changeZoom(zoomRef.current*(e.deltaY<0?1.1:1/1.1))}
       onPointerDown={handlePointerDown}
