@@ -1,4 +1,5 @@
 import { Api } from './api';
+import { quoteRequest } from './quote';
 import { uuid } from './types';
 import type { Job, Task, Result, User, QueueWaitReason } from './types';
 
@@ -205,6 +206,7 @@ export class GateApi extends Api {
   }
   override async request<T>(path: string, body?: unknown, method?: string, signal?: AbortSignal): Promise<T> {
     if (this.closed) throw new Error('连接已关闭');
+    if (path === '/quote') return super.request<T>(path, quoteRequest(body as Task), method, signal);
     if (path === '/me') {
       if (!this.me || Date.now()-this.meAt > 30000) {
         this.me = await super.request<User>(path); this.meAt = Date.now();

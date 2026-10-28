@@ -9,19 +9,18 @@ import hashlib
 import json
 import math
 import os
-import io
+import re
 import time
 from collections import OrderedDict, deque
 from pathlib import Path
 
 import httpx
-from PIL import Image
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from .adapters import MAX_IMAGE_PIXELS, AdapterError, NaiAdapter, build_request
+from .adapters import AdapterError, NaiAdapter
 from .config import Settings
-from .inpaint import validate_mask_selection
+from .model_policy import request_model_for_operation
 from .task_validation import validate_task
 
 OPERATIONS = ['generate', 'img2img', 'inpaint', 'encode_vibe', 'upscale', 'augment']
@@ -39,10 +38,8 @@ MODELS = [
 
 # Quote requests are informational only. Keep them separate from the image
 # execution admission and retry policy below.
-QUOTE_MAX_BODY_BYTES = 25 * 1024 * 1024
+QUOTE_MAX_BODY_BYTES = 4 * 1024
 QUOTE_READ_TIMEOUT_SECONDS = 30
-QUOTE_MAX_CONCURRENCY = 2
-QUOTE_MAX_PARSE_CONCURRENCY = 1
 QUOTE_RATE_WINDOW_SECONDS = 60
 QUOTE_GLOBAL_RATE_PER_WINDOW = 600
 QUOTE_KEY_RATE_PER_WINDOW = 180
@@ -54,8 +51,6 @@ GATE_IDENTITY_FAILURE_CACHE_TTL_SECONDS = 2
 GATE_IDENTITY_CACHE_MAX_ENTRIES = 256
 GATE_IDENTITY_LOOKUP_MAX_CONCURRENCY = 4
 GATE_IDENTITY_LOOKUP_RATE_PER_WINDOW = 240
-MASK_PREFLIGHT_CACHE_MAX_ENTRIES = 32
-_mask_preflight_cache = OrderedDict()
 
 
 def _security_now():
@@ -86,42 +81,6 @@ def _queue_status_payload(raw):
     return {'global': counts, 'image_cooldown_remaining': cooldown}
 
 
-def _preflight_inpaint_mask(parameters):
-    """Reject masks whose exact generation-grid selection is empty."""
-    source_value, mask_value = parameters.get('image'), parameters.get('mask')
-    if not isinstance(source_value, str) or not isinstance(mask_value, str):
-        raise HTTPException(422, '局部重绘需要有效的源图和蒙版')
-    try:
-        source_data = base64.b64decode(source_value, validate=True)
-        mask_data = base64.b64decode(mask_value, validate=True)
-        with Image.open(io.BytesIO(source_data)) as source:
-            source_size = source.size
-            if (source.format not in {'PNG', 'JPEG', 'WEBP'}
-                    or source.width * source.height > MAX_IMAGE_PIXELS):
-                raise ValueError('source')
-    except Exception:
-        raise HTTPException(422, '局部重绘源图或蒙版格式无效') from None
-
-    cache_key = (hashlib.sha256(mask_value.encode('ascii')).digest(), source_size,
-                 parameters.get('width'), parameters.get('height'))
-    if cache_key in _mask_preflight_cache:
-        error = _mask_preflight_cache[cache_key]
-        _mask_preflight_cache.move_to_end(cache_key)
-    else:
-        try:
-            validate_mask_selection(mask_data, source_size, parameters['width'], parameters['height'])
-            error = None
-        except ValueError as exc:
-            error = str(exc)
-        except Exception:
-            error = '局部重绘蒙版格式无效'
-        _mask_preflight_cache[cache_key] = error
-        while len(_mask_preflight_cache) > MASK_PREFLIGHT_CACHE_MAX_ENTRIES:
-            _mask_preflight_cache.popitem(last=False)
-    if error:
-        raise HTTPException(422, error)
-
-
 def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
     gate_url = (gate_url or os.environ.get('WORKBENCH_GATE_URL', 'http://nai-gate:8000')).rstrip('/')
     static = Path(os.environ.get('WORKBENCH_STATIC_DIR', Path(__file__).resolve().parents[2]/'client/dist')).resolve()
@@ -140,8 +99,6 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
     quote_rate_lock = asyncio.Lock()
     quote_global_events = deque()
     quote_key_events = OrderedDict()
-    quote_slots = asyncio.Semaphore(QUOTE_MAX_CONCURRENCY)
-    quote_parse_slots = asyncio.Semaphore(QUOTE_MAX_PARSE_CONCURRENCY)
     execute_prep_slots = asyncio.Semaphore(EXECUTE_PREP_MAX_CONCURRENCY)
     tag_slots = asyncio.Semaphore(TAG_MAX_CONCURRENCY)
 
@@ -236,10 +193,10 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
         # and must not be presented as an unlimited allowance.
         return None
 
-    async def fetch_gate_identity(digest, token, read_only=False):
+    async def fetch_gate_identity(digest, token):
         current = asyncio.current_task()
         try:
-            info = await gate_get('/v1/image/quote' if read_only else '/user/information', token)
+            info = await gate_get('/user/information', token)
             username = info.get('username') if isinstance(info, dict) else None
             outcome = (200, username, '') if isinstance(username, str) else (502, None, 'Gate 暂时不可用')
         except HTTPException as exc:
@@ -265,7 +222,7 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
                     identity_cache.popitem(last=False)
         return outcome
 
-    async def gate_username(token, *, read_only=False):
+    async def gate_username(token):
         digest = hashlib.sha256(token.encode()).hexdigest()
         now = _security_now()
         async with identity_lock:
@@ -287,12 +244,12 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
                 if len(identity_inflight) >= GATE_IDENTITY_LOOKUP_MAX_CONCURRENCY:
                     raise HTTPException(503, '身份验证暂时繁忙，请稍后再试', headers={'Retry-After': '1'})
                 identity_lookup_events.append(now)
-                task = asyncio.create_task(fetch_gate_identity(digest, token, read_only))
+                task = asyncio.create_task(fetch_gate_identity(digest, token))
                 identity_inflight[digest] = task
 
         if outcome is None:
             # Keep a canceled browser request from canceling a shared Gate lookup
-            # needed by another quote or by /api/me.
+            # needed by another request or by /api/me.
             outcome = await asyncio.shield(task)
         status, username, detail = outcome
         if status != 200:
@@ -328,26 +285,57 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
             if declared_length < 0:
                 raise HTTPException(400, 'Content-Length 无效')
             if declared_length > QUOTE_MAX_BODY_BYTES:
-                raise HTTPException(413, '报价请求体超过 25 MiB')
+                raise HTTPException(413, '报价请求体超过 4 KiB')
         raw = bytearray()
         try:
             async with asyncio.timeout(QUOTE_READ_TIMEOUT_SECONDS):
                 async for chunk in request.stream():
                     if len(raw) + len(chunk) > QUOTE_MAX_BODY_BYTES:
-                        raise HTTPException(413, '报价请求体超过 25 MiB')
+                        raise HTTPException(413, '报价请求体超过 4 KiB')
                     raw.extend(chunk)
         except TimeoutError:
             raise HTTPException(408, '读取报价请求超时') from None
         return raw
 
-    def parse_quote_task(raw):
+    def parse_quote_metadata(raw):
         try:
-            task = validate_task(json.loads(raw), Settings())
+            query = json.loads(raw)
         except (ValueError, TypeError, RecursionError, OverflowError):
-            raise HTTPException(422, '任务参数无效') from None
-        if task['operation'] not in OPERATIONS:
-            raise HTTPException(422, '当前 Gate 尚未提供这项操作')
-        return task
+            raise HTTPException(422, '报价参数无效') from None
+        if not isinstance(query, dict) or set(query) != {'operation', 'model', 'parameters'}:
+            raise HTTPException(422, '报价仅接受 operation、model 和 parameters')
+        operation, model, params = query['operation'], query['model'], query['parameters']
+        if (not isinstance(model, str) or not 1 <= len(model) <= 160
+                or not re.fullmatch(r'[A-Za-z0-9._-]+', model) or not isinstance(params, dict)):
+            raise HTTPException(422, '报价模型或参数无效')
+        fields = {
+            'generate-image': {'mode', 'width', 'height', 'steps', 'n_samples', 'sm', 'sm_dyn',
+                               'upscaled_enhance', 'has_controlnet', 'vibe_count', 'precise_count',
+                               'pending_vibe_encoding_count', 'strength', 'inpaint_strength'},
+            'upscale': {'width', 'height'},
+            'augment-image': {'width', 'height', 'req_type'},
+            'encode-vibe': set(),
+        }
+        if not isinstance(operation, str) or operation not in fields or set(params) - fields[operation]:
+            raise HTTPException(422, '报价包含未知操作或非计价参数')
+        for name, value in params.items():
+            if name in {'sm', 'sm_dyn', 'upscaled_enhance', 'has_controlnet'}:
+                valid = type(value) is bool
+            elif name in {'mode', 'req_type'}:
+                valid = isinstance(value, str) and 0 < len(value) <= 40
+            elif name in {'strength', 'inpaint_strength'}:
+                valid = type(value) is int or (type(value) is float and math.isfinite(value))
+            else:
+                valid = type(value) is int
+            if not valid:
+                raise HTTPException(422, '报价计价参数类型无效')
+        if operation == 'generate-image':
+            if params.get('n_samples', 1) != 1:
+                raise HTTPException(422, '每个工作台任务只能生成一张图片')
+            query['model'] = request_model_for_operation(model, params.get('mode', 'generate'))
+        elif operation == 'upscale':
+            query['model'] = 'nai-diffusion-5-curated'
+        return query
 
     async def task_body(request):
         raw = bytearray()
@@ -473,33 +461,9 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
     @app.post('/api/quote')
     async def quote(request: Request):
         token = credential(request)
-        try:
-            async with asyncio.timeout(5):
-                await quote_slots.acquire()
-        except TimeoutError:
-            raise HTTPException(429, '报价处理繁忙，请稍后再试', headers={'Retry-After': '1'}) from None
-        try:
-            digest = hashlib.sha256(token.encode()).hexdigest()
-            await gate_username(token, read_only=True)
-            await admit_quote(digest)
-            raw = await quote_task_bytes(request)
-            await quote_parse_slots.acquire()
-            try:
-                task = parse_quote_task(raw)
-                if task['operation'] == 'inpaint':
-                    _preflight_inpaint_mask(task['parameters'])
-                try:
-                    path, payload, _ = await asyncio.to_thread(build_request, task)
-                except AdapterError as exc:
-                    raise HTTPException(422, exc.message) from None
-                operation = 'generate-image' if path.endswith('generate-image-stream') else path.rsplit('/', 1)[-1]
-                query = dict(operation=operation, payload=payload,
-                             pending_vibe_indices=task['parameters'].get('vibe_pending_indices', []))
-            finally:
-                quote_parse_slots.release()
-            return await gate_quote(token, query)
-        finally:
-            quote_slots.release()
+        await admit_quote(hashlib.sha256(token.encode()).hexdigest())
+        query = parse_quote_metadata(await quote_task_bytes(request))
+        return await gate_quote(token, query)
 
     @app.post('/api/execute')
     async def execute(request: Request):

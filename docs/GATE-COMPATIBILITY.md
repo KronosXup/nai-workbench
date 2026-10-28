@@ -2,12 +2,12 @@
 
 本项目连接 [fangchen2003/service-tools](https://github.com/fangchen2003/service-tools) 的 NAI Gate。
 首版所需的路由和响应字段已按上游提交 [`b81959c`](https://github.com/fangchen2003/service-tools/tree/b81959c0cf5533ca5fc3071dff2e8926e9b12629) 核对。
-本版本另外要求 Gate 提供下面的只读报价接口；较早版本需要先升级 Gate，工作台不再保留另一套本地费率公式。
+当前代码要求 Gate 提供下面的计价参数报价接口；工作台与 Gate 需一起升级，升级后刷新已有页面。旧的完整图片 `payload` 报价格式不再接受，工作台不保留另一套本地费率公式。
 
 | 工作台用途 | Gate 接口 |
 |---|---|
 | 验证 Key、读取权限 | `GET /user/information` |
-| 报价前只读鉴权、取得费用 | `GET /v1/image/quote`、`POST /v1/image/quote` |
+| 只读鉴权并取得费用 | `POST /v1/image/quote` |
 | 显示积分与 V5 额度 | `GET /user/subscription` |
 | 显示 V4.5 及以下每日免费图剩余 | `GET /v1/me` |
 | 显示服务器排队状态 | `GET /queue-status` |
@@ -22,9 +22,17 @@
 
 ## 费用与功能
 
-工作台的 `/api/quote` 将最终模型、操作和图片参数转给 Gate，由 Gate 统一返回费用、参数调整及 Medium 路由。生成按钮、工具栏、导演工具和费用确认均使用该结果；接口不可用或返回无效价格时显示错误，不回退到本地估算。待编码 Vibe 通过 `pending_vibe_indices` 交由 Gate 统计，浏览器继续按原图、模型及信息提取值复用编码。
+工作台的 `/api/quote` 只向 Gate 发送模型、操作和计价参数，由 Gate 统一返回费用、参数调整及 Medium 路由。生成按钮、工具栏、导演工具和费用确认均使用该结果；接口不可用或返回无效价格时显示错误，不回退到本地估算。浏览器按原图、模型及信息提取值去重待编码 Vibe，只传 `pending_vibe_encoding_count`；参考图只传数量。报价不上传图片、蒙版、编码数据或提示词，也不解码或缩放图片。
 
-确认后的 `cost_limit` 随任务保留并传给 Gate；单次编码另用 `encoding_cost_limit`。排队后费用上涨或 V5 额度转为 Anlas 时，如果超过已确认上限，Gate 返回 409，工作台显示重新报价提示并停止该任务，不自动扩大费用或重试。Max 使用原图尺寸加 `upscaled_enhance=true`，显示尺寸从报价的 `output_size` 取得。
+报价请求最多 4 KiB，顶层仅接受 `operation`、`model`、`parameters`。例如：
+
+```json
+{"operation":"generate-image","model":"nai-diffusion-5-full","parameters":{"mode":"generate","width":832,"height":1216,"steps":23,"n_samples":1,"vibe_count":0,"precise_count":0,"pending_vibe_encoding_count":0}}
+```
+
+生成操作的 `mode` 为 `generate`、`img2img` 或 `inpaint`，按需附带 `strength`、`inpaint_strength`、`sm`、`sm_dyn`、`upscaled_enhance` 和 `has_controlnet`。放大使用 `operation=upscale` 与源图宽高；导演工具使用 `augment-image`、源图宽高和 `req_type`；单次 Vibe 编码使用 `encode-vibe` 和空 `parameters`。重绘模型映射由适配层按实际执行规则处理。
+
+确认后的 `cost_limit` 随任务保留并传给 Gate；单次编码另用 `encoding_cost_limit`。正式执行才上传真图并校验图片、尺寸和参考数据，再按同一规则核算费用。低报计价参数不能绕过执行检查：实际费用超过已确认上限时，Gate 返回 409，工作台显示重新报价提示并停止该任务，不自动扩大费用或重试。Max 使用规范化源尺寸加 `upscaled_enhance=true`，显示尺寸从报价的 `output_size` 取得。
 
 报价不调用真实 NAI；官方账号的额度可用性在实际派发前复核。Gate 的历史[图片计费与兼容性改动 PR #2](https://github.com/fangchen2003/service-tools/pull/2) 已于 2026-09-26 合并；新增报价接口与 Max 支持不能仅凭这个历史版本判断，应按目标实例接口验收。
 

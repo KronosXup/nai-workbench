@@ -26,6 +26,11 @@ def task(model='nai-diffusion-4-5-full'):
                 parameters=dict(width=832,height=1216,steps=28,scale=5,seed=1,n_samples=1))
 
 
+def quote_metadata(model='nai-diffusion-4-5-full', **parameters):
+    return dict(operation='generate-image', model=model,
+                parameters={'width': 832, 'height': 1216, 'steps': 28, **parameters})
+
+
 def inpaint_images(size=(512, 512), *, selection=True, thin=False, offset=0):
     source = io.BytesIO()
     Image.new('RGB', size, 'navy').save(source, format='PNG')
@@ -62,7 +67,7 @@ def test_bridge_honors_stream_choice_through_gate_route_and_final_delivery():
     paths = []
 
     async def gate(request):
-        if request.url.path == '/user/information' or (request.url.path == '/v1/image/quote' and request.method == 'GET'):
+        if request.url.path == '/user/information':
             return httpx.Response(200, json={'username': 'fixture'})
         paths.append(request.url.path)
         if request.url.path == '/ai/generate-image-stream':
@@ -118,7 +123,7 @@ def test_bridge_auth_isolation_operations_no_storage_and_stream(v5_left):
         token = request.headers.get('authorization')
         if token not in ('Bearer A', 'Bearer B'):
             return httpx.Response(401)
-        if request.url.path == '/user/information' or (request.url.path == '/v1/image/quote' and request.method == 'GET'):
+        if request.url.path == '/user/information':
             return httpx.Response(200,json={'username':'same-name'})
         if request.url.path == '/v1/me':
             return httpx.Response(404)
@@ -169,7 +174,7 @@ def test_bridge_auth_isolation_operations_no_storage_and_stream(v5_left):
             body['operation']='unsupported'
             assert (await client.post('/api/execute',headers={'Authorization':'Bearer A'},json=body)).status_code == 422
             before=len(calls)
-            q=await client.post('/api/quote',headers={'Authorization':'Bearer A'},json=task())
+            q=await client.post('/api/quote',headers={'Authorization':'Bearer A'},json=quote_metadata())
             assert q.json()['units']==0 and len(calls)==before+1
             assert calls[-1] == '/v1/image/quote'
             assert (await client.get('/api/admin/users')).status_code==404
@@ -179,9 +184,9 @@ def test_bridge_auth_isolation_operations_no_storage_and_stream(v5_left):
 
 
 
-def test_inpaint_quote_rejects_blank_and_subthreshold_masks_before_queueing():
+def test_inpaint_execute_rejects_blank_and_subthreshold_masks_before_dispatch():
     async def gate(request):
-        if request.url.path == '/user/information' or (request.url.path == '/v1/image/quote' and request.method == 'GET'):
+        if request.url.path == '/user/information':
             return httpx.Response(200, json={'username': 'fixture'})
         raise AssertionError(f'unexpected Gate request: {request.url.path}')
 
@@ -195,9 +200,10 @@ def test_inpaint_quote_rejects_blank_and_subthreshold_masks_before_queueing():
                 item['operation'] = 'inpaint'
                 image, _ = inpaint_images((64, 64))
                 item['parameters'].update(width=64, height=64, steps=29, image=image, mask=mask)
-                response = await client.post('/api/quote', headers=headers, json=item)
-                assert response.status_code == 422
-                assert response.json()['detail'] == '蒙版没有选中可重绘的区域'
+                response = await client.post('/api/execute', headers=headers, json=item)
+                assert response.status_code == 200
+                assert response.json()['type'] == 'error'
+                assert response.json()['message'] == '蒙版没有选中可重绘的区域'
 
     asyncio.run(run())
 
@@ -209,7 +215,7 @@ def test_inpaint_quote_rejects_blank_and_subthreshold_masks_before_queueing():
 ])
 def test_me_reports_dedicated_free_image_quota(limit, used, admin, left, unlimited):
     async def gate(request):
-        if request.url.path == '/user/information' or (request.url.path == '/v1/image/quote' and request.method == 'GET'):
+        if request.url.path == '/user/information':
             return httpx.Response(200, json={'username': 'fixture'})
         if request.url.path == '/user/subscription':
             return httpx.Response(200, json={'naiGate': {'anlasMonthlyLimit': 100, 'anlasLeft': 80}})
@@ -233,7 +239,7 @@ def test_me_reports_dedicated_free_image_quota(limit, used, admin, left, unlimit
 @pytest.mark.parametrize('failure', [404, 405, 500, 429, 'timeout', 'bad-json', 'missing', 'invalid', 401, 403])
 def test_me_optional_quota_failure_never_means_unlimited(failure):
     async def gate(request):
-        if request.url.path == '/user/information' or (request.url.path == '/v1/image/quote' and request.method == 'GET'):
+        if request.url.path == '/user/information':
             return httpx.Response(200, json={'username': 'fixture'})
         if request.url.path == '/user/subscription':
             return httpx.Response(200, json={'naiGate': {'anlasMonthlyLimit': 100, 'anlasLeft': 80}})
@@ -264,7 +270,7 @@ def test_free_image_quota_refresh_is_isolated_by_key():
     used = {'A': 7, 'B': 20}
     async def gate(request):
         token = request.headers['authorization'].removeprefix('Bearer ')
-        if request.url.path == '/user/information' or (request.url.path == '/v1/image/quote' and request.method == 'GET'):
+        if request.url.path == '/user/information':
             return httpx.Response(200, json={'username': 'same-name'})
         if request.url.path == '/user/subscription':
             return httpx.Response(200, json={'naiGate': {'anlasMonthlyLimit': 0, 'anlasLeft': 0}})
@@ -281,45 +287,10 @@ def test_free_image_quota_refresh_is_isolated_by_key():
     asyncio.run(run())
 
 
-def test_inpaint_quote_reuses_a_bounded_mask_preflight_cache(monkeypatch):
-    import app.gate_bridge as bridge
-
-    bridge._mask_preflight_cache.clear()
-    original = bridge.validate_mask_selection
-    calls = []
-
-    def counted(*args):
-        calls.append(1)
-        return original(*args)
-
-    monkeypatch.setattr(bridge, 'validate_mask_selection', counted)
-    image, mask = inpaint_images()
-    item = task()
-    item['operation'] = 'inpaint'
-    item['parameters'].update(width=512, height=512, image=image, mask=mask)
-    first, second = bridge._preflight_inpaint_mask(item['parameters']), bridge._preflight_inpaint_mask(item['parameters'])
-    assert first == second
-    assert len(calls) == 1
-    for offset in range(1, bridge.MASK_PREFLIGHT_CACHE_MAX_ENTRIES + 2):
-        _, distinct_mask = inpaint_images(offset=offset)
-        distinct = task()
-        distinct['operation'] = 'inpaint'
-        distinct['parameters'].update(width=512, height=512, image=image, mask=distinct_mask)
-        bridge._preflight_inpaint_mask(distinct['parameters'])
-    assert len(bridge._mask_preflight_cache) == bridge.MASK_PREFLIGHT_CACHE_MAX_ENTRIES
-    assert len(calls) == bridge.MASK_PREFLIGHT_CACHE_MAX_ENTRIES + 2
-
-
-
-
-
-
-
-
 def test_tag_suggestions_forward_only_a_bounded_fragment_and_do_not_generate():
     calls = []
     async def gate(request):
-        if request.url.path == '/user/information' or (request.url.path == '/v1/image/quote' and request.method == 'GET'):
+        if request.url.path == '/user/information':
             return httpx.Response(200, json={'username': 'fixture'})
         calls.append((request.method, request.url.path, request.headers.get('authorization'), json.loads(request.content)))
         return httpx.Response(200, json={'tags':[{'tag':'blue sky','count':123},{'tag':'sunset','count':7}]})
@@ -507,7 +478,7 @@ def test_queue_status_is_authenticated_cached_whitelisted_and_failure_safe(monke
         entered, release = asyncio.Event(), asyncio.Event()
 
         async def gate(request):
-            if request.url.path == '/user/information' or (request.url.path == '/v1/image/quote' and request.method == 'GET'):
+            if request.url.path == '/user/information':
                 return httpx.Response(200, json={'username': 'fixture'})
             assert request.url.path == '/queue-status'
             assert request.headers.get('authorization') is None
@@ -578,7 +549,7 @@ def test_queue_status_cache_isolated_between_app_instances():
         calls = {'one': 0, 'two': 0}
         async def gate(name, active):
             async def handle(request):
-                if request.url.path == '/user/information' or (request.url.path == '/v1/image/quote' and request.method == 'GET'):
+                if request.url.path == '/user/information':
                     return httpx.Response(200, json={'username': name})
                 assert request.url.path == '/queue-status'
                 calls[name] += 1

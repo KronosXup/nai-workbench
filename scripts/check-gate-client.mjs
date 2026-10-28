@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import {createRequire} from 'node:module';
 const require=createRequire(new URL('../client/package.json',import.meta.url));
 const ts=require('typescript');
-let seq=0, names=[], execute, executeSignals=[], executeTasks=[];
+let seq=0, names=[], execute, executeSignals=[], executeTasks=[], quoteRequests=[];
 let enhancePreparation=async()=> 'prepared-image';
 const saved={fetch:globalThis.fetch,setTimeout:globalThis.setTimeout,clearTimeout:globalThis.clearTimeout,now:Date.now};
 let now=1_000_000, timerSequence=0;
@@ -26,6 +26,10 @@ const events=(...items)=>new Response(items.map(item=>JSON.stringify(item)+'\n')
 const final=()=>({type:'final',artifacts:[{data:'dGVzdA==',media_type:'image/png',filename:'test.png',metadata:{},sha256:'hash'}]});
 const limited=(code='gate_rpm',retry_after=2)=>({type:'error',code,retryable:true,retry_after,uncertain:false,message:'请等待后继续'});
 globalThis.fetch=async(url,options)=>{
+  if(url.endsWith('/quote')) {
+    quoteRequests.push(JSON.parse(options.body));
+    return Response.json({source:'gate',units:0,unit_label:'积分',cost_limit:{anlas:0,v5:0},encoding_cost_limit:{anlas:2,v5:0}});
+  }
   if(url.endsWith('/execute')) {
     const task=JSON.parse(options.body);names.push(task.label);lastExecuteSignal=options.signal;executeSignals.push(options.signal);executeTasks.push(structuredClone(task));return execute(task);
   }
@@ -38,7 +42,7 @@ function compiled(file,deps={}) {
 }
 const api=compiled('api.ts');
 const {GateApi}=compiled('gateApi.ts',{'./api':api,'./types':{uuid:()=>`result-${++seq}`},
-  './enhanceImage':{prepareEnhanceImage:task=>enhancePreparation(task)}});
+  './quote':compiled('quote.ts'),'./enhanceImage':{prepareEnhanceImage:task=>enhancePreparation(task)}});
 const {default:GateQueueStatus,gateJobLabel,queueWaitLabel,validGateQueueSnapshot}=compiled('GateQueueStatus.tsx',{'react':require('react'),'react/jsx-runtime':require('react/jsx-runtime')});
 const {default:WorkspaceHeader}=compiled('WorkspaceHeader.tsx',{'react':require('react'),'react-dom':require('react-dom'),'react/jsx-runtime':require('react/jsx-runtime'),'lucide-react':require('lucide-react')});
 const {renderToStaticMarkup}=require('react-dom/server');
@@ -55,6 +59,41 @@ function reset(handler=()=>events(final())) {
   names=[];executeSignals=[];executeTasks=[];execute=handler;
 }
 try {
+  {
+    const client=new GateApi('http://fixture','fixture-key');
+    const pixels='PIXELS_NOT_FOR_QUOTATION'.repeat(100000);
+    const base={...task('private-label'),model:'nai-diffusion-4-5-full',prompt:'private-prompt',negative_prompt:'private-negative',
+      parameters:{width:1024,height:1024,steps:28,n_samples:1,scale:7,cfg_rescale:.5,seed:42,
+        sampler:'k_euler_ancestral',image:pixels,mask:pixels,reference_image_multiple:[],
+        reference_information_extracted_multiple:[],character_reference_images:[]}};
+    const before=structuredClone(base);
+    await client.request('/quote',{...base,operation:'img2img',parameters:{...base.parameters,strength:.5,sm:true,sm_dyn:true}});
+    let sent=quoteRequests.at(-1);
+    assert.equal(sent.parameters.mode,'img2img'); assert.equal(sent.parameters.strength,.5);
+    assert.equal(sent.parameters.sm,false); assert.equal(sent.parameters.sm_dyn,false);
+    assert.ok(JSON.stringify(sent).length<1024);
+    assert.doesNotMatch(JSON.stringify(sent),/PIXELS_NOT_FOR_QUOTATION|private-|sampler|cfg_rescale|seed/);
+    await client.request('/quote',{...base,operation:'inpaint',parameters:{...base.parameters,img2img:{strength:.3}}});
+    assert.equal(quoteRequests.at(-1).parameters.inpaint_strength,.3);
+    await client.request('/quote',{...base,operation:'img2img',parameters:{...base.parameters,upscaled_enhance:true,strength:.5}});
+    assert.equal(quoteRequests.at(-1).parameters.upscaled_enhance,true);
+    await client.request('/quote',{...base,parameters:{...base.parameters,
+      reference_image_multiple:[pixels,pixels,'different-pixels'],reference_information_extracted_multiple:[.5,.5,.5],
+      vibe_pending_indices:[0,1,2]}});
+    sent=quoteRequests.at(-1);
+    assert.equal(sent.parameters.vibe_count,3); assert.equal(sent.parameters.pending_vibe_encoding_count,2);
+    assert.ok(JSON.stringify(sent).length<1024);
+    for(const operation of ['upscale','augment','encode_vibe']) {
+      await client.request('/quote',{...base,operation,parameters:{...base.parameters,req_type:'emotion',emotion:'happy',defry:5}});
+      sent=quoteRequests.at(-1);
+      assert.doesNotMatch(JSON.stringify(sent),/PIXELS_NOT_FOR_QUOTATION|private-|happy|defry/);
+      assert.deepEqual(sent.parameters,operation==='encode_vibe'?{}:
+        {width:1024,height:1024,...(operation==='augment'?{req_type:'emotion'}:{})});
+    }
+    assert.deepEqual(base,before,'Quotation projection must preserve the complete generation task');
+    client.close();
+    console.log('PASS quotation requests carry only pricing metadata for every operation and deduplicate pending Vibes');
+  }
   {
     const api={},counts={active:2,waiting:1,concurrency:1};
     const display=(remaining,serverOffset=0,age=0)=>renderToStaticMarkup(require('react').createElement(GateQueueStatus,{monitor:{
