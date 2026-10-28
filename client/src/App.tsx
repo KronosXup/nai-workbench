@@ -2158,13 +2158,6 @@ export default function App() {
           )}
           {page === "settings" && (
             <main className="settings-page">
-              <div className="page-title">
-                <div>
-                  <small>工作台设置</small>
-                  <h1>设置</h1>
-                  <p>连接、绘图偏好与本机备份。</p>
-                </div>
-              </div>
               <div className="settings-grid">
                 <section>
                   <div className="settings-heading">
@@ -2176,8 +2169,6 @@ export default function App() {
                     <dd>{user.name}</dd>
                     <dt>服务</dt>
                     <dd>{location.origin}</dd>
-                    <dt>运行方式</dt>
-                    <dd>现有 Gate · 页面内串行队列</dd>
                     <dt>可用 Anlas</dt>
                     <dd>
                       {user.quota.remaining}{" "}
@@ -2207,7 +2198,6 @@ export default function App() {
                     />
                     <span>
                       <b>生成中流式预览</b>
-                      <small>开启后请求生成过程的预览；关闭后只在完成时显示图片。</small>
                     </span>
                   </label>
                   <label className="setting-toggle">
@@ -2218,25 +2208,22 @@ export default function App() {
                     />
                     <span>
                       <b>提示词标签建议</b>
-                      <small>输入提示词时查询标签；关闭后不再发送这类查询。</small>
                     </span>
                   </label>
-                  <p className="muted small">这些选项随当前 Key 的本机草稿保存，对新任务生效。</p>
                 </section>
                 <section>
                   <div className="settings-heading">
                     <Save size={19} />
                     <h2>本机图库</h2>
                   </div>
-                  <p>结果直接保存到当前浏览器，服务器不保留图片。批量生成时请保持页面打开，等待本机保存完成。</p>
-                  <p className="muted small">本机图库按 Key 隔离。更换 Key、浏览器或访问地址前请导出备份，新 Key 下可导入恢复。</p>
+                  <p>图库保存在当前浏览器，按 Key 区分。</p>
+                  <p className="muted small">生成和保存完成前，请保持页面打开。</p>
                 </section>
                 <section>
                   <div className="settings-heading">
                     <FolderOpen size={19} />
                     <h2>备份与迁移</h2>
                   </div>
-                  <p>备份包含原图、参数、参考图、草稿、提示词预设，并优先收录当前口令下正在使用的可编辑画布工程。画布工程最多收录 128 项、512 MB；若有省略会在这里显示数量，本机原工程不会删除。</p>
                   {backupWarning && <p className="muted small" role="alert">{backupWarning}</p>}
                   <div className="settings-actions">
                     <button onClick={() => void backup()}>
@@ -2260,7 +2247,7 @@ export default function App() {
                     </label>
                   </div>
                   <p className="muted small">
-                    本机图库不会自动跨设备同步。清除浏览器数据前请备份。
+                    更换 Key、浏览器或访问地址，以及清除浏览器数据前，请先备份。
                   </p>
                 </section>
               </div>
