@@ -16,6 +16,8 @@ export function enhanceScales(width: number, height: number, model: string) {
 
 export function enhanceDimensions(width: number, height: number, scale: number | 'max') {
   if (scale === 'max') {
+    width = Math.round(width / 64) * 64;
+    height = Math.round(height / 64) * 64;
     const factor = Math.min(2, Math.sqrt(3145728 / (width * height)));
     return { width: Math.floor(width * factor), height: Math.floor(height * factor) };
   }
@@ -28,11 +30,17 @@ export function enhanceTask(base: Task, image: Pick<ImportedImage, 'data' | 'wid
   const allowed = enhanceScales(image.width, image.height, base.model)
     .some(option => option.value === settings.scale && !option.disabled);
   if (!allowed) throw new Error('当前图片不支持所选增强尺寸');
-  const size = settings.scale === 'max' ? { width: image.width, height: image.height } : enhanceDimensions(image.width, image.height, settings.scale);
+  const size = settings.scale === 'max' ? enhanceDimensions(image.width, image.height, 1) : enhanceDimensions(image.width, image.height, settings.scale);
   const parameters: Task['parameters'] = { ...structuredClone(base.parameters), ...size,
     image: image.data, source_width: image.width, source_height: image.height,
-    strength: settings.strength, noise: settings.noise, n_samples: 1, seed: -1 };
+    strength: settings.strength, noise: settings.noise, n_samples: 1, seed: -1, enhance: true };
   for (const key of ['mask', 'img2img', 'upscale', 'upscaled_enhance', 'canvas_project_id']) delete parameters[key];
   if (settings.scale === 'max') parameters.upscaled_enhance = true;
-  return { ...base, operation: 'img2img', parameters, label: 'Enhance' };
+  let prompt = base.prompt;
+  if (settings.scale !== 'max' && /nai-diffusion-(4-5|5)-/.test(base.model) && !prompt.includes('upscaled, blurry')) {
+    const index = prompt.search(/(?:^|\s|[,.:[\]{}、。])text:(?!:)/i);
+    const at = index < 0 ? prompt.length : index;
+    prompt = prompt.slice(0, at) + ', -2::upscaled, blurry::,' + prompt.slice(at);
+  }
+  return { ...base, prompt, operation: 'img2img', parameters, label: 'Enhance' };
 }

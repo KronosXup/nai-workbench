@@ -25,6 +25,7 @@ from typing import Any
 
 import httpx
 from PIL import Image
+from .enhance import prepare_enhance_source
 from .inpaint import composite_result, normalize_source, prepare_mask
 from .model_policy import request_model_for_operation
 
@@ -224,6 +225,7 @@ def build_request(job: dict) -> tuple[str, dict, bool]:
     """
     operation = job["operation"]
     params = copy.deepcopy(job.get("parameters", {}))
+    enhance = params.pop("enhance", False) is True
     for local_field in ("vibe_encodings", "vibe_pending_indices", "vibe_encoding_cost_limit", "vibe_source_images", "vibe_source_files", "source_width", "source_height"):
         params.pop(local_field, None)
     model = str(job.get("model") or "nai-diffusion-4-5-full")
@@ -261,6 +263,11 @@ def build_request(job: dict) -> tuple[str, dict, bool]:
     if operation not in {"generate", "img2img", "inpaint"}:
         raise AdapterError("unsupported_operation", "不支持的生成操作")
     if operation == "img2img":
+        if enhance:
+            params["image"] = base64.b64encode(prepare_enhance_source(
+                decode_base64(params["image"]), params["width"], params["height"],
+                model.startswith("nai-diffusion-5"),
+            )).decode("ascii")
         # Match the official image-conditioning defaults. Its noise seed is
         # distinct from the diffusion seed; retain an explicitly imported one.
         params.setdefault("extra_noise_seed", params.get("seed", 0) - 1)

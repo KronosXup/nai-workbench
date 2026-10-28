@@ -973,10 +973,16 @@ checks.push(['Enhance uses the selected pixels with current settings and confirm
   const base={request_id:'enhance-test',operation:'img2img',model:'nai-diffusion-5-full',prompt:'abstract mountains',negative_prompt:'text',
     label:'test',parameters:{...structuredClone(defaultParameters),image:'old image',mask:'old mask',img2img:{strength:1},seed:111}};
   const before=structuredClone(base),task=enhanceTask(base,image,settings);
-  assert.equal(task.prompt,'abstract mountains');assert.equal(task.parameters.image,image.data);
+  assert.equal(task.prompt,'abstract mountains, -2::upscaled, blurry::,');assert.equal(task.parameters.image,image.data);
+  assert.equal(task.parameters.enhance,true);
+  assert.equal(enhanceTask({...base,prompt:'scene text: HELLO'},image,settings).prompt,'scene, -2::upscaled, blurry::, text: HELLO');
+  assert.equal(enhanceTask({...base,prompt:'text:: scene'},image,settings).prompt,'text:: scene, -2::upscaled, blurry::,');
+  assert.equal(enhanceTask({...base,prompt:task.prompt},image,settings).prompt,task.prompt);
+  assert.equal(enhanceTask({...base,model:'nai-diffusion-4-full'},image,settings).prompt,base.prompt);
   assert.deepEqual([task.parameters.width,task.parameters.height,task.parameters.seed,task.parameters.n_samples],[1280,1856,-1,1]);
   assert.ok(!('mask' in task.parameters));assert.ok(!('img2img' in task.parameters));assert.deepEqual(base,before);
   const max=enhanceTask(base,image,{...settings,scale:'max'});
+  assert.equal(max.prompt,base.prompt);
   assert.deepEqual([max.parameters.width,max.parameters.height,max.parameters.upscaled_enhance],[832,1216,true]);
   assert.deepEqual(enhanceDimensions(832,1216,'max'),{width:1467,height:2144});
   assert.throws(()=>enhanceTask({...base,model:'nai-diffusion-4-5-full'},image,{...settings,scale:'max'}),/不支持/);
