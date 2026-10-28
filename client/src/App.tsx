@@ -49,6 +49,7 @@ import type {
 import ImageViewer from "./ImageViewer";
 import { variationTasks } from './variations';
 import { enhanceDimensions, enhanceScales, enhanceTask } from './enhance';
+import { withQuote, type ImageQuote } from './quote';
 import type { EnhanceSettings } from './EnhancePanel';
 import MaskEditor from "./MaskEditor";
 import CanvasEditor from "./CanvasEditor";
@@ -356,14 +357,7 @@ export default function App() {
     owner: string;
   } | null>(null);
   const [presetName, setPresetName] = useState("");
-  const [quote, setQuote] = useState<{
-    units: number;
-    generation_units?: number;
-    encoding_units?: number;
-    unit_label: string;
-    verified: boolean;
-    message: string;
-  } | null>(null);
+  const [quote, setQuote] = useState<ImageQuote | null>(null);
   const [quoteError, setQuoteError] = useState<QuoteError | null>(null);
   const quoteVersion = useRef(0);
   const [galleryQuery, setGalleryQuery] = useState("");
@@ -1013,6 +1007,20 @@ export default function App() {
       items.forEach(validateTask);
       // Check before Vibe encoding, which may incur a charge. Recheck on enqueue too.
       api.checkCapacity(items.length);
+      let unquotedAnlas = 0, unquotedV5 = 0;
+      for (let index = 0; index < items.length; index++) {
+        if (items[index].cost_limit) continue;
+        const price = await api.request<ImageQuote>('/quote', items[index]);
+        if (seq !== generation.current || owner !== identity.current) return;
+        items[index] = withQuote(items[index], price);
+        unquotedAnlas += price.cost_limit.anlas + (price.encoding_units ?? 0);
+        unquotedV5 += price.cost_limit.v5;
+      }
+      if (unquotedAnlas || unquotedV5) {
+        const accepted = await askConfirmation({title: '确认任务费用？',
+          message: `预计 ${unquotedAnlas} 积分、${unquotedV5} V5 单位。`, confirmLabel: '确认提交'});
+        if (!accepted || seq !== generation.current || owner !== identity.current) return;
+      }
       const cache={...draftRef.current.parameters.vibe_encodings};
       for(const task of items) {
         const pending=(task.parameters.vibe_pending_indices??[]) as number[];
@@ -1021,8 +1029,10 @@ export default function App() {
           const source=task.parameters.reference_image_multiple[index], extracted=task.parameters.reference_information_extracted_multiple[index]??1;
           const key=vibeKey(source,encodingModel,extracted);
           if(!cache[key]) {
-            notify(`正在编码 Vibe 参考 ${index+1}，预计 2 积分…`);
-            cache[key]=await api.encodeVibe({request_id:uuid(),operation:'encode_vibe',model:encodingModel,prompt:'',negative_prompt:'',label:'Vibe 编码',parameters:{...structuredClone(defaultParameters),image:source,information_extracted:extracted}});
+            notify(`正在编码 Vibe 参考 ${index+1}…`);
+            cache[key]=await api.encodeVibe({request_id:uuid(),operation:'encode_vibe',model:encodingModel,prompt:'',negative_prompt:'',label:'Vibe 编码',
+              cost_limit: task.parameters.vibe_encoding_cost_limit as Task['cost_limit'],
+              parameters:{...structuredClone(defaultParameters),image:source,information_extracted:extracted}});
             if(seq!==generation.current || owner!==identity.current)return;
             const next={...draftRef.current,parameters:{...draftRef.current.parameters,vibe_encodings:{...draftRef.current.parameters.vibe_encodings,[key]:cache[key]}}};
             draftRef.current=next;setDraft(next);
@@ -1086,7 +1096,8 @@ export default function App() {
       return;
     }
     const count = Math.max(1, Math.min(20, Math.floor(draft.count)));
-    void submit(Array.from({ length: count }, () => taskFor()));
+    if (!quote) { fail(new Error('请等待 Gate 报价完成')); return; }
+    void submit(Array.from({ length: count }, () => withQuote(taskFor(), quote)));
   }
   function batchStrings(item: BatchItem): Strings {
     return Object.fromEntries(stringKeys.map(key => [
@@ -1131,14 +1142,7 @@ export default function App() {
       if (configurationIssueFor(task, caps?.models ?? fallbackModels, caps?.operations)) return;
       delete task.parameters.vibe_source_images;
       delete task.parameters.vibe_source_files;
-      const q = await api.request<{
-        units: number;
-        generation_units?: number;
-        encoding_units?: number;
-        unit_label: string;
-        verified: boolean;
-        message: string;
-      }>("/quote", task);
+      const q = await api.request<ImageQuote>("/quote", task);
       if (seq === generation.current && version === quoteVersion.current) { setQuote(q); setQuoteError(null); }
     } catch (e) {
       if (seq === generation.current && version === quoteVersion.current) { setQuote(null); setQuoteError({ message: errorText(e), connection: e instanceof ApiError && [401, 403].includes(e.status), retryable: !(e instanceof ApiError) || e.status >= 500 || e.status === 408 || e.status === 429 }); if (!quiet) fail(e); }
@@ -1355,16 +1359,17 @@ export default function App() {
       const task = enhanceTask(taskFor(draft.prompt, draft, 'Enhance', 'img2img'), captured.image, captured.settings);
       validateTask(task);
       api.checkCapacity(1);
-      const price = await api.request<{ units: number; unit_label: string }>('/quote', task);
+      const price = await api.request<ImageQuote>('/quote', task);
       if (!current()) return;
       if (!Number.isFinite(price.units) || price.units < 0) throw new Error('暂时无法取得 Enhance 报价');
       const cost = price.unit_label.includes('V5') ? `${price.units} V5 单位` : `${price.units} 积分`;
+      const size = price.output_size ?? Object.values(enhanceDimensions(captured.image.width, captured.image.height, captured.settings.scale));
       const accepted = await askConfirmation({ title: '确认增强图像？',
-        message: `${captured.image.width} × ${captured.image.height} → ${task.parameters.width} × ${task.parameters.height}，预计 ${cost}。`,
+        message: `${captured.image.width} × ${captured.image.height} → ${size[0]} × ${size[1]}，预计 ${cost}。`,
         confirmLabel: '确认增强' });
       if (!accepted || !current()) return;
       submitting.current = false;
-      await submit([task]);
+      await submit([withQuote(task, price)]);
     } catch (error) {
       if (current()) fail(error);
     } finally {
@@ -1381,7 +1386,7 @@ export default function App() {
       if (seq !== generation.current || owner !== identity.current || pageRef.current !== 'draw' ||
           selection !== importSequence.current || selectedIdRef.current !== row.id) return;
       const scales = enhanceScales(image.width, image.height, draftRef.current.model).filter(option => !option.disabled);
-      const scale = scales.at(-1)?.value;
+      const scale = scales.filter(option => typeof option.value === 'number').at(-1)?.value ?? scales.at(-1)?.value;
       if (scale === undefined) throw new Error('这张图片没有可用的增强尺寸');
       setEnhance({ rowId: row.id, owner, image, settings: { scale, magnitude: 3, strength: .5, noise: 0, advanced: false } });
     } catch (error) {
@@ -1410,7 +1415,7 @@ export default function App() {
       };
       validateTask(task);
       api.checkCapacity(1);
-      const price = await api.request<{units: number; unit_label: string}>('/quote', task);
+      const price = await api.request<ImageQuote>('/quote', task);
       if (!current()) return;
       if (!Number.isFinite(price.units) || price.units < 0) throw new Error('暂时无法取得高清放大报价');
       const cost = price.unit_label.includes('V5') ? `${price.units} V5 单位` : `${price.units} 积分`;
@@ -1421,7 +1426,7 @@ export default function App() {
       });
       if (!accepted || !current()) return;
       submitting.current = false;
-      await submit([task]);
+      await submit([withQuote(task, price)]);
     } catch (error) {
       if (current()) fail(error);
     } finally {
@@ -1445,7 +1450,7 @@ export default function App() {
       const tasks = variationTasks(row, image, draftRef.current.parameters.stream === true);
       tasks.forEach(validateTask);
       api.checkCapacity(tasks.length);
-      const price = await api.request<{units: number; unit_label: string}>("/quote", tasks[0]);
+      const price = await api.request<ImageQuote>("/quote", tasks[0]);
       if (!current()) return;
       if (!Number.isFinite(price.units) || price.units < 0) throw new Error('暂时无法取得变体报价');
       const total = price.units * tasks.length;
@@ -1458,7 +1463,7 @@ export default function App() {
       if (!accepted || !current()) return;
       // submit owns the same queue lock; release preparation before handing off.
       submitting.current = false;
-      await submit(tasks);
+      await submit(tasks.map(task => withQuote(task, price)));
     } catch (error) {
       if (current()) fail(error);
     } finally {
@@ -1653,7 +1658,7 @@ export default function App() {
   const configurationIssue = configurationIssueFor(activeEnhance
     ? enhanceTask(taskFor(draft.prompt, draft, 'Enhance', 'img2img'), activeEnhance.image, activeEnhance.settings)
     : { ...draft, operation: effectiveOperation }, models, caps?.operations);
-  const generationBlocked = Boolean(configurationIssue || (quoteError && !quoteError.retryable));
+  const generationBlocked = Boolean(!quote || configurationIssue || (quoteError && !quoteError.retryable));
   const batchCapacityIssue = batchTasks().length + queuePending > MAX_PENDING
     ? `本次 ${batchTasks().length} 张，队列还可加入 ${Math.max(0, MAX_PENDING - queuePending)} 张。` : "";
   const refs = (
@@ -1991,7 +1996,7 @@ export default function App() {
                       <span>{item.enabled ? '当前组' : '未启用'}</span>
                       <button
                         disabled={!item.enabled || !item.prompt.trim() || busy || generationBlocked}
-                        onClick={() => void submit(batchTasks(index))}
+                        onClick={() => void submit(batchTasks(index).map(task => withQuote(task, quote)))}
                       >
                         <Play size={13} />
                         生成本组 · {Math.max(1, Math.min(20, Math.floor(item.count)))} 张
@@ -2038,7 +2043,7 @@ export default function App() {
                 <button
                   className="primary"
                   disabled={busy || batchTasks().length === 0 || generationBlocked || Boolean(batchCapacityIssue)}
-                  onClick={() => void submit(batchTasks())}
+                  onClick={() => void submit(batchTasks().map(task => withQuote(task, quote)))}
                 >
                   <Play size={16} fill="currentColor" />
                   生成已勾选组 · {batchTasks().length} 张

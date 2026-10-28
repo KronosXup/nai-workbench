@@ -290,7 +290,7 @@ export class GateApi extends Api {
     const execution=linkedExecution(this.controller.signal);
     try {
       const task = executionPayload({request_id:job.request_id, operation:job.operation, model:job.model, prompt:job.prompt,
-        negative_prompt:job.negative_prompt, parameters:job.parameters, label:job.label});
+        negative_prompt:job.negative_prompt, parameters:job.parameters, label:job.label, cost_limit:job.cost_limit});
       const response = await execution.wait(()=>this.raw('/execute',task,execution.signal),FETCH_TIMEOUT_MESSAGE);
       job.last_data_at=Date.now()/1000;
       if (!response.ok) {

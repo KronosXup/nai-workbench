@@ -224,7 +224,7 @@ def build_request(job: dict) -> tuple[str, dict, bool]:
     """
     operation = job["operation"]
     params = copy.deepcopy(job.get("parameters", {}))
-    for local_field in ("vibe_encodings", "vibe_pending_indices", "vibe_source_images", "vibe_source_files", "source_width", "source_height"):
+    for local_field in ("vibe_encodings", "vibe_pending_indices", "vibe_encoding_cost_limit", "vibe_source_images", "vibe_source_files", "source_width", "source_height"):
         params.pop(local_field, None)
     model = str(job.get("model") or "nai-diffusion-4-5-full")
     prompt = str(job.get("prompt", ""))
@@ -363,6 +363,8 @@ class NaiAdapter:
         if not self.settings.nai_token:
             raise AdapterError("not_configured", "部署者尚未配置 NAI 连接")
         path, body, use_stream = build_request(job)
+        if self.gate_mode and job.get("cost_limit") is not None:
+            body["cost_limit"] = job["cost_limit"]
         inpaint_source = decode_base64(body["parameters"]["image"]) if job["operation"] == "inpaint" else None
         inpaint_mask = decode_base64(body["parameters"]["mask"]) if inpaint_source else None
 
@@ -411,6 +413,8 @@ class NaiAdapter:
                                     rejection = None
                                 if rejection:
                                     raise rejection
+                    if self.gate_mode and status == 409:
+                        raise AdapterError("gate_price_changed", "费用已变化，本次未生成、未扣费；请重新报价并确认后提交")
                     message = {401: "NAI 凭据无效", 402: "NAI 额度不足", 403: "NAI 拒绝访问", 429: "NAI 正在限流，请稍后再试"}.get(status, f"NAI 返回错误状态 {status}")
                     if self.gate_mode and status == 429:
                         message = "Gate 拒绝了本次请求，请核对额度或稍后再试"

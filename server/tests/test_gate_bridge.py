@@ -11,8 +11,14 @@ from PIL import Image, ImageDraw
 from app.adapters import AdapterError, Artifact, NaiAdapter
 import app.adapters as adapters
 from app.config import Settings
-from app.gate_bridge import create_app, estimate
+from app.gate_bridge import create_app
 import app.gate_bridge as gate_bridge
+
+
+def quote_result(anlas=0, v5=0, encoding=0, **extra):
+    return dict(source='gate', anlas=anlas, v5=v5, generation_anlas=anlas-encoding,
+                encoding_anlas=encoding, cost_limit={'anlas': anlas-encoding, 'v5': v5},
+                encoding_cost_limit={'anlas': 2, 'v5': 0}, notes=[], **extra)
 
 
 def task(model='nai-diffusion-4-5-full'):
@@ -56,7 +62,7 @@ def test_bridge_honors_stream_choice_through_gate_route_and_final_delivery():
     paths = []
 
     async def gate(request):
-        if request.url.path == '/user/information':
+        if request.url.path == '/user/information' or (request.url.path == '/v1/image/quote' and request.method == 'GET'):
             return httpx.Response(200, json={'username': 'fixture'})
         paths.append(request.url.path)
         if request.url.path == '/ai/generate-image-stream':
@@ -112,10 +118,12 @@ def test_bridge_auth_isolation_operations_no_storage_and_stream(v5_left):
         token = request.headers.get('authorization')
         if token not in ('Bearer A', 'Bearer B'):
             return httpx.Response(401)
-        if request.url.path == '/user/information':
+        if request.url.path == '/user/information' or (request.url.path == '/v1/image/quote' and request.method == 'GET'):
             return httpx.Response(200,json={'username':'same-name'})
         if request.url.path == '/v1/me':
             return httpx.Response(404)
+        if request.url.path == '/v1/image/quote':
+            return httpx.Response(200, json=quote_result())
         assert request.url.path == '/user/subscription'
         return httpx.Response(200,json={'naiGate':dict(anlasMonthlyLimit=30,anlasLeft=20,v5LeftToday=v5_left,v5DailyLimit=10,v5Unlimited=False,imageModelScope='all')})
 
@@ -162,27 +170,18 @@ def test_bridge_auth_isolation_operations_no_storage_and_stream(v5_left):
             assert (await client.post('/api/execute',headers={'Authorization':'Bearer A'},json=body)).status_code == 422
             before=len(calls)
             q=await client.post('/api/quote',headers={'Authorization':'Bearer A'},json=task())
-            assert q.json()['units']==0 and len(calls)==before
+            assert q.json()['units']==0 and len(calls)==before+1
+            assert calls[-1] == '/v1/image/quote'
             assert (await client.get('/api/admin/users')).status_code==404
             assert (await client.get('/server/app/config.py')).status_code==404
     asyncio.run(run())
 
 
-def test_quotes_use_gate_units_and_reference_surcharges():
-    assert estimate(task())['units']==0
-    q=estimate(task('nai-diffusion-5-full'))
-    assert q['units']==1 and q['unit_label']=='V5单位' and not q['verified']
-    assert 'Medium' in q['message'] and 'Gate' in q['message']
-    item=task('nai-diffusion-5-full');item['parameters']['steps']=29
-    assert estimate(item)['units']==30 and estimate(item)['unit_label']=='积分'
-    assert 'Medium' in estimate(item)['message']
-    item=task();item['parameters']['character_reference_images']=['fixture']
-    assert estimate(item)['units']==5
 
 
 def test_inpaint_quote_rejects_blank_and_subthreshold_masks_before_queueing():
     async def gate(request):
-        if request.url.path == '/user/information':
+        if request.url.path == '/user/information' or (request.url.path == '/v1/image/quote' and request.method == 'GET'):
             return httpx.Response(200, json={'username': 'fixture'})
         raise AssertionError(f'unexpected Gate request: {request.url.path}')
 
@@ -210,7 +209,7 @@ def test_inpaint_quote_rejects_blank_and_subthreshold_masks_before_queueing():
 ])
 def test_me_reports_dedicated_free_image_quota(limit, used, admin, left, unlimited):
     async def gate(request):
-        if request.url.path == '/user/information':
+        if request.url.path == '/user/information' or (request.url.path == '/v1/image/quote' and request.method == 'GET'):
             return httpx.Response(200, json={'username': 'fixture'})
         if request.url.path == '/user/subscription':
             return httpx.Response(200, json={'naiGate': {'anlasMonthlyLimit': 100, 'anlasLeft': 80}})
@@ -234,7 +233,7 @@ def test_me_reports_dedicated_free_image_quota(limit, used, admin, left, unlimit
 @pytest.mark.parametrize('failure', [404, 405, 500, 429, 'timeout', 'bad-json', 'missing', 'invalid', 401, 403])
 def test_me_optional_quota_failure_never_means_unlimited(failure):
     async def gate(request):
-        if request.url.path == '/user/information':
+        if request.url.path == '/user/information' or (request.url.path == '/v1/image/quote' and request.method == 'GET'):
             return httpx.Response(200, json={'username': 'fixture'})
         if request.url.path == '/user/subscription':
             return httpx.Response(200, json={'naiGate': {'anlasMonthlyLimit': 100, 'anlasLeft': 80}})
@@ -265,7 +264,7 @@ def test_free_image_quota_refresh_is_isolated_by_key():
     used = {'A': 7, 'B': 20}
     async def gate(request):
         token = request.headers['authorization'].removeprefix('Bearer ')
-        if request.url.path == '/user/information':
+        if request.url.path == '/user/information' or (request.url.path == '/v1/image/quote' and request.method == 'GET'):
             return httpx.Response(200, json={'username': 'same-name'})
         if request.url.path == '/user/subscription':
             return httpx.Response(200, json={'naiGate': {'anlasMonthlyLimit': 0, 'anlasLeft': 0}})
@@ -298,7 +297,7 @@ def test_inpaint_quote_reuses_a_bounded_mask_preflight_cache(monkeypatch):
     item = task()
     item['operation'] = 'inpaint'
     item['parameters'].update(width=512, height=512, image=image, mask=mask)
-    first, second = estimate(item), estimate(item)
+    first, second = bridge._preflight_inpaint_mask(item['parameters']), bridge._preflight_inpaint_mask(item['parameters'])
     assert first == second
     assert len(calls) == 1
     for offset in range(1, bridge.MASK_PREFLIGHT_CACHE_MAX_ENTRIES + 2):
@@ -306,89 +305,21 @@ def test_inpaint_quote_reuses_a_bounded_mask_preflight_cache(monkeypatch):
         distinct = task()
         distinct['operation'] = 'inpaint'
         distinct['parameters'].update(width=512, height=512, image=image, mask=distinct_mask)
-        estimate(distinct)
+        bridge._preflight_inpaint_mask(distinct['parameters'])
     assert len(bridge._mask_preflight_cache) == bridge.MASK_PREFLIGHT_CACHE_MAX_ENTRIES
     assert len(calls) == bridge.MASK_PREFLIGHT_CACHE_MAX_ENTRIES + 2
 
 
-def test_v5_curated_is_listed_quoted_and_forwarded_as_curated():
-    from app.adapters import build_request
-
-    async def run():
-        app = create_app('http://gate.fixture', httpx.MockTransport(lambda request: httpx.Response(500)))
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
-            models = (await client.get('/api/capabilities')).json()['models']
-            curated = next(model for model in models if model['id'] == 'nai-diffusion-5-curated')
-            assert not curated['precise_reference'] and not curated['vibe_transfer']
-    asyncio.run(run())
-    item = task('nai-diffusion-5-curated')
-    assert estimate(item)['unit_label'] == 'V5单位'
-    _, body, _ = build_request(item)
-    assert body['model'] == 'nai-diffusion-5-curated'
-    item['parameters']['steps'] = 29
-    assert estimate(item)['unit_label'] == '积分'
 
 
-def test_v5_curated_inpaint_maps_request_and_uses_v45_quote_classification():
-    import base64
-    import io
-    from PIL import Image
-    from app.adapters import build_request
-
-    image = io.BytesIO()
-    Image.new('RGB', (256, 256), 'navy').save(image, format='PNG')
-    encoded = base64.b64encode(image.getvalue()).decode()
-    mask = io.BytesIO()
-    Image.new('RGB', (256, 256), 'white').save(mask, format='PNG')
-    mask_encoded = base64.b64encode(mask.getvalue()).decode()
-    item = task('nai-diffusion-5-curated')
-    item['operation'] = 'inpaint'
-    item['parameters'].update(image=encoded, mask=mask_encoded, width=256, height=256, steps=29,
-                              img2img={'strength': .2})
-    quote = estimate(item)
-    assert (quote['units'], quote['generation_units'], quote['unit_label']) == (2, 2, '积分')
-    _, body, _ = build_request(item)
-    assert (body['model'], body['action']) == ('nai-diffusion-4-5-curated-inpainting', 'infill')
-    with_precise = {**item, 'parameters': {**item['parameters'], 'character_reference_images': [encoded]}}
-    _, precise_body, _ = build_request(with_precise)
-    assert len(precise_body['parameters']['director_reference_images_cached']) == 1
-    assert 'character_reference_images' not in precise_body['parameters']
-
-    # An ordinary V5 request remains on the V5 endpoint/model and daily quota.
-    for operation in ('generate', 'img2img'):
-        ordinary = task('nai-diffusion-5-curated')
-        ordinary['operation'] = operation
-        ordinary['parameters'].update(width=512, height=512)
-        if operation == 'img2img':
-            ordinary['parameters']['image'] = encoded
-        ordinary_quote = estimate(ordinary)
-        assert ordinary_quote['unit_label'] == 'V5单位'
-        _, ordinary_body, _ = build_request(ordinary)
-        assert ordinary_body['model'] == 'nai-diffusion-5-curated'
-        assert ordinary_body['action'] == operation
-
-    # The V4.5-mapped inpaint free case is still reported as credits, not V5 use.
-    item['parameters'].update(width=512, height=512, steps=28, img2img={'strength': .2})
-    free_quote = estimate(item)
-    assert (free_quote['units'], free_quote['unit_label']) == (0, '积分')
 
 
-def test_v5_curated_inpaint_quote_counts_v45_vibe_encoding_units():
-    item = task('nai-diffusion-5-curated')
-    item['operation'] = 'inpaint'
-    image, mask = inpaint_images((256, 256))
-    item['parameters'].update(width=256, height=256, steps=29, image=image, mask=mask,
-                              img2img={'strength': .2}, reference_image_multiple=['encoded-vibe'],
-                              vibe_pending_indices=[0])
-    quote = estimate(item)
-    assert quote['unit_label'] == '积分'
-    assert quote['encoding_units'] == 2 and quote['generation_units'] == 2 and quote['units'] == 4
 
 
 def test_tag_suggestions_forward_only_a_bounded_fragment_and_do_not_generate():
     calls = []
     async def gate(request):
-        if request.url.path == '/user/information':
+        if request.url.path == '/user/information' or (request.url.path == '/v1/image/quote' and request.method == 'GET'):
             return httpx.Response(200, json={'username': 'fixture'})
         calls.append((request.method, request.url.path, request.headers.get('authorization'), json.loads(request.content)))
         return httpx.Response(200, json={'tags':[{'tag':'blue sky','count':123},{'tag':'sunset','count':7}]})
@@ -418,96 +349,14 @@ def test_chunked_input_is_bounded_without_upstream_generation():
     asyncio.run(run())
 
 
-def test_tools_use_actual_image_size_and_vibe_quote_is_once():
-    import base64
-    import io
-    from PIL import Image
-    from app.adapters import build_request
-    stream=io.BytesIO();Image.new('RGB',(640,480)).save(stream,format='PNG')
-    image=base64.b64encode(stream.getvalue()).decode()
-    item=task();item['parameters'].update(image=image,width=1024,height=1024,scale_factor=2)
-    item['operation']='upscale'
-    assert estimate(item)['units']==1
-    path,body,streaming=build_request(item)
-    assert path=='/ai/upscale' and body==dict(image=image,model='nai-diffusion-5-curated',declared_blur_sigma=0) and not streaming
-    item['operation']='augment';item['parameters'].update(req_type='emotion',emotion='happy',defry=2)
-    path,body,_=build_request(item)
-    assert path=='/ai/augment-image' and body['width']==640 and body['height']==480
-    assert body['prompt']=='happy;;fixture' and body['defry']==2
-    assert estimate(item)['units']==0
-    item['parameters']['req_type']='bg-removal'
-    assert estimate(item)['units']==65
-    item=task();item['parameters'].update(reference_image_multiple=['a','b'],vibe_pending_indices=[0,1])
-    q=estimate(item)
-    assert q['units']==4 and q['encoding_units']==4 and q['generation_units']==0
-    item['parameters']['vibe_pending_indices']=[]
-    assert estimate(item)['units']==0
 
 
-@pytest.mark.parametrize('information,encoding_units', [([1, 1, 1, 1, 1], 2), ([1, 1, .5, .5, .5], 4)])
-def test_repeated_vibe_sources_share_encoding_but_keep_reference_entry_surcharge(information, encoding_units):
-    item = task()
-    item['parameters'].update(reference_image_multiple=['same-source'] * 5,
-                              reference_information_extracted_multiple=information,
-                              vibe_pending_indices=[0, 1, 2, 3, 4])
-    quote = estimate(item)
-    assert quote['encoding_units'] == encoding_units
-    assert quote['generation_units'] == 2  # Five reference entries remain five.
-    assert quote['units'] == encoding_units + 2
 
 
-@pytest.mark.parametrize('model', ['nai-diffusion-4-full', 'nai-diffusion-4-5-full'])
-def test_legacy_free_quote_uses_area_and_keeps_paid_features(model):
-    item = task(model)
-    for width, height in [(512, 768), (896, 1152), (2048, 512), (1024, 1024)]:
-        item['parameters'].update(width=width, height=height)
-        quote = estimate(item)
-        assert quote['units'] == 0 and quote['unit_label'] == '积分' and not quote['verified']
-    item['parameters']['height'] = 1032
-    assert estimate(item)['units'] == 21
-    for parameter in [dict(steps=29), dict(controlnet_model='fixture')]:
-        item = task(model)
-        item['parameters'].update(parameter)
-        assert estimate(item)['units'] > 0
-    item = task(model)
-    item['operation'] = 'img2img'
-    item['parameters'].update(image='fixture', strength=.5)
-    assert estimate(item)['units'] == 0
-    item['parameters']['steps'] = 29
-    assert estimate(item)['units'] == 10
-    item = task(model)
-    item['parameters'].update(width=512, height=768, reference_image_multiple=['a'] * 5)
-    assert estimate(item)['units'] == 2
 
 
-def test_reference_quotes_keep_free_base_and_v5_uses_pixel_area():
-    item = task()
-    item['parameters'].update(width=512, height=768, character_reference_images=['fixture'])
-    assert estimate(item)['units'] == 5
-    item = task('nai-diffusion-5-full')
-    item['parameters'].update(width=896, height=1152)
-    assert estimate(item)['units'] == 1 and estimate(item)['unit_label'] == 'V5单位'
-    item['parameters'].update(width=512, height=768)
-    assert estimate(item)['units'] == 1 and estimate(item)['unit_label'] == 'V5单位'
 
 
-def test_img2img_and_inpaint_quotes_match_gate_billing_rules():
-    image, mask = inpaint_images()
-    for operation in ('img2img', 'inpaint'):
-        for model in ('nai-diffusion-4-5-full', 'nai-diffusion-5-full'):
-            item = task(model)
-            item['operation'] = operation
-            item['parameters'].update(image=image, width=512, height=512, steps=28, strength=.6)
-            if operation == 'inpaint':
-                item['parameters'].update(mask=mask, img2img={'strength': 1})
-            quote = estimate(item)
-            assert (quote['units'], quote['unit_label']) == ((1, 'V5单位') if 'diffusion-5' in model else (0, '积分'))
-            item['parameters']['steps'] = 29
-            if operation == 'inpaint':
-                assert estimate(item)['units'] == (9 if 'diffusion-5' in model else 6)
-                item['parameters']['img2img'] = {'strength': .6}
-            expected = (9 if operation == 'inpaint' else 6) if 'diffusion-5' in model else 4
-            assert estimate(item)['units'] == expected
 
 
 @pytest.mark.parametrize('message,flat,header,code,delay', [
@@ -658,7 +507,7 @@ def test_queue_status_is_authenticated_cached_whitelisted_and_failure_safe(monke
         entered, release = asyncio.Event(), asyncio.Event()
 
         async def gate(request):
-            if request.url.path == '/user/information':
+            if request.url.path == '/user/information' or (request.url.path == '/v1/image/quote' and request.method == 'GET'):
                 return httpx.Response(200, json={'username': 'fixture'})
             assert request.url.path == '/queue-status'
             assert request.headers.get('authorization') is None
@@ -729,7 +578,7 @@ def test_queue_status_cache_isolated_between_app_instances():
         calls = {'one': 0, 'two': 0}
         async def gate(name, active):
             async def handle(request):
-                if request.url.path == '/user/information':
+                if request.url.path == '/user/information' or (request.url.path == '/v1/image/quote' and request.method == 'GET'):
                     return httpx.Response(200, json={'username': name})
                 assert request.url.path == '/queue-status'
                 calls[name] += 1

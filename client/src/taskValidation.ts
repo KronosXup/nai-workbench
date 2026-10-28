@@ -1,5 +1,5 @@
 import type { Capabilities, Operation, Task } from './types';
-import { samplersFor } from './modelSettings';
+import { samplersFor, isMediumModel } from './modelSettings';
 import { encodingFor } from './vibeFiles';
 import type { VibeFileItem } from './vibeFiles';
 
@@ -33,7 +33,7 @@ export function configurationIssueFor(
   // Image tools do not send the saved character/reference settings. Keep those
   // settings for the next drawing task without blocking upscale or director tools.
   if (usesGenerationSettings(operation)) {
-    if (!samplersFor(effectiveModel).some(([id]) => id === p.sampler))
+    if (!isMediumModel(effectiveModel) && !samplersFor(effectiveModel).some(([id]) => id === p.sampler))
       return { message: "请为当前模型选择可用采样器。", target: "settings" };
     if (p.character_reference_images.length && (!effectiveModel.startsWith('nai-diffusion-4-5') || info?.precise_reference === false))
       return {

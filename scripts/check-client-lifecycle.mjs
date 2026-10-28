@@ -49,10 +49,12 @@ const {resolveVibeReference, makeVibeFile, VibeReferenceError, encodingFor} = ac
 const {readDirectorDraft, directorFromJob, directorTask, directorMatchesJob, directorSourceIssue, migrateDirectorDraft} = actualModule('director.ts');
 const {variationTasks} = actualModule('variations.ts');
 const {enhanceScales, enhanceDimensions, enhanceTask} = actualModule('enhance.ts');
+const {withQuote} = actualModule('quote.ts');
+const gatePrice = units => ({source:'gate',units,unit_label:'积分',verified:false,message:'Gate fixture',cost_limit:{anlas:units,v5:0},encoding_cost_limit:{anlas:2,v5:0}});
 const {layoutCanvasItems, fitCanvasRect, zoomCanvasAt, canvasVisibleRect, canvasRectsIntersect} = actualModule('outputCanvasGeometry.ts');
 
 function actualFunction(name, scope) {
-  scope = {effectiveModelForOperation, activeEnhance: null, enhanceTask, ...scope};
+  scope = {effectiveModelForOperation, activeEnhance: null, enhanceTask, enhanceDimensions, withQuote, ...scope};
   let expression;
   function visit(node) {
     if (ts.isFunctionDeclaration(node) && node.name?.text === name) {
@@ -900,7 +902,7 @@ const checks = [
       const scope={api:{checkCapacity:count=>{state.capacity=count;},request:async(route,task)=>{
         state.quoteCalls.push({route,task}); if(state.quoteError)throw state.quoteError;
         if(state.quotePending)return state.quotePending;
-        return {units:7,unit_label:'积分'};
+        return gatePrice(7);
       }},submitting:{current:false},setBusy:value=>{state.busy=value;},generation:{get current(){return state.generation;}},
         identity:{get current(){return state.identity;}},pageRef:{get current(){return state.page;}},selectedIdRef:{get current(){return state.selectedId;}},
         draftRef:{get current(){return state.draft;}},readImage:async file=>({name:file.name,data:'finished-pixels',width:512,height:768,metadata:{prompt:'image prompt without unsaved preset',negative:'image UC',characters:[{prompt:'hero',negative_prompt:'',x:.1,y:.9}]}}),
@@ -929,7 +931,7 @@ const checks = [
     for(const point of ['quote','confirm']) for(const change of ['identity','selection']) {
       const h=variationHarness();let resume,started;
       const began=new Promise(resolve=>{started=resolve;});
-      if(point==='quote')h.state.quotePending=new Promise(resolve=>{resume=()=>resolve({units:7,unit_label:'积分'});started();});
+      if(point==='quote')h.state.quotePending=new Promise(resolve=>{resume=()=>resolve(gatePrice(7));started();});
       else h.scope.askConfirmation=()=>{started();return new Promise(resolve=>{resume=()=>resolve(true);});};
       const work=h.run();await began;
       if(change==='identity'){h.state.generation++;h.state.identity='owner-b';}
@@ -942,7 +944,7 @@ const checks = [
 
 checks.push(['Enhance uses the selected pixels with current settings and confirms before any submission', async () => {
   assert.deepEqual(enhanceDimensions(832,1216,1.5),{width:1280,height:1856});
-  assert.ok(enhanceScales(832,1216,'nai-diffusion-5-full').find(item=>item.value==='max')?.disabled);
+  assert.equal(enhanceScales(832,1216,'nai-diffusion-5-full').find(item=>item.value==='max')?.disabled, undefined);
   assert.ok(!enhanceScales(832,1216,'nai-diffusion-4-5-full').some(item=>item.value==='max'));
   const image={data:'geometric-fixture',width:832,height:1216};
   const settings={scale:1.5,magnitude:3,strength:.5,noise:0,advanced:false};
@@ -952,7 +954,10 @@ checks.push(['Enhance uses the selected pixels with current settings and confirm
   assert.equal(task.prompt,'abstract mountains');assert.equal(task.parameters.image,image.data);
   assert.deepEqual([task.parameters.width,task.parameters.height,task.parameters.seed,task.parameters.n_samples],[1280,1856,-1,1]);
   assert.ok(!('mask' in task.parameters));assert.ok(!('img2img' in task.parameters));assert.deepEqual(base,before);
-  assert.throws(()=>enhanceTask(base,image,{...settings,scale:'max'}),/不支持/);
+  const max=enhanceTask(base,image,{...settings,scale:'max'});
+  assert.deepEqual([max.parameters.width,max.parameters.height,max.parameters.upscaled_enhance],[832,1216,true]);
+  assert.deepEqual(enhanceDimensions(832,1216,'max'),{width:1467,height:2144});
+  assert.throws(()=>enhanceTask({...base,model:'nai-diffusion-4-5-full'},image,{...settings,scale:'max'}),/不支持/);
   function harness() {
     const captured={rowId:'selected',owner:'owner-a',image,settings};
     const state={generation:1,owner:'owner-a',page:'draw',selected:'selected',draft:newDraft(),enhance:captured,
@@ -961,7 +966,7 @@ checks.push(['Enhance uses the selected pixels with current settings and confirm
       draft:state.draft,draftRef:{get current(){return state.draft;}},generation:{get current(){return state.generation;}},
       identity:{get current(){return state.owner;}},pageRef:{get current(){return state.page;}},selectedIdRef:{get current(){return state.selected;}},
       submitting:{current:false},setBusy:value=>{state.busy=value;},taskFor:()=>structuredClone(base),
-      validateTask:()=>{},api:{checkCapacity:()=>{},request:async(route,task)=>{state.quotes.push({route,task});if(state.error)throw state.error;return {units:9,unit_label:'积分'};}},
+      validateTask:()=>{},api:{checkCapacity:()=>{},request:async(route,task)=>{state.quotes.push({route,task});if(state.error)throw state.error;return gatePrice(9);}},
       askConfirmation:request=>{state.confirmations.push(request);return state.accept;},
       submit:async tasks=>{state.submitted.push(tasks);},fail:error=>{state.failures.push(error);}};
     return {state,scope,run:()=>actualFunction('confirmEnhance',scope)()};
@@ -969,6 +974,7 @@ checks.push(['Enhance uses the selected pixels with current settings and confirm
   const accepted=harness();await accepted.run();
   assert.equal(accepted.state.quotes.length,1);assert.match(accepted.state.confirmations[0].message,/1280 × 1856，预计 9 积分/);
   assert.equal(accepted.state.submitted.length,1);assert.equal(accepted.state.submitted[0].length,1);
+  assert.deepEqual(accepted.state.submitted[0][0].cost_limit,{anlas:9,v5:0});
   assert.equal(accepted.state.busy,false);assert.equal(accepted.scope.submitting.current,false);
   const cancelled=harness();cancelled.state.accept=false;await cancelled.run();assert.equal(cancelled.state.submitted.length,0);
   const failed=harness();failed.state.error=new Error('quote unavailable');await failed.run();
@@ -1084,11 +1090,11 @@ if (failed) process.exitCode = 1;
 // Verify the actual submit loop deduplicates shared paid encodings and persists before enqueue.
 {
   let encoded=0,submitted=0,saved=0;
-  class GateFixture {checkCapacity(){} async encodeVibe(){encoded++;return 'ZW5jb2RlZA==';}async request(){submitted++;assert.equal(saved,1);}}
+  class GateFixture {checkCapacity(){} async encodeVibe(task){assert.deepEqual(task.cost_limit,{anlas:2,v5:0});encoded++;return 'ZW5jb2RlZA==';}async request(route){if(route==='/quote')return {...gatePrice(0),encoding_units:2};submitted++;assert.equal(saved,1);}}
   const api=new GateFixture(),owner={current:'owned-fixture'},generation={current:1};
   const draftRef={current:{parameters:{vibe_encodings:{}}}};
   const scope={api,GateApi:GateFixture,identity:owner,generation,draftRef,submitting:{current:false},setBusy:()=>{},
-    validateTask:()=>{},defaultParameters:{},notify:()=>{},vibeKey:(s,m,e)=>`${s}|${m}|${e}`,uuid:()=>crypto.randomUUID(),
+    validateTask:()=>{},askConfirmation:async()=>true,defaultParameters:{},notify:()=>{},vibeKey:(s,m,e)=>`${s}|${m}|${e}`,uuid:()=>crypto.randomUUID(),
     setDraft:()=>{},local:{saveDraft:async()=>{saved++;}},submitCache:{current:null},setFailure:()=>{},setShowQueue:()=>{},refresh:()=>{},fail:e=>{throw e;}};
   const submit=actualFunction('submit',scope);
   const item=()=>({request_id:crypto.randomUUID(),model:'nai-diffusion-4-5-full',parameters:{seed:1,reference_image_multiple:['source'],reference_information_extracted_multiple:[1],vibe_pending_indices:[0]}});

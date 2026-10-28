@@ -9,6 +9,14 @@ import pytest
 from app.adapters import Artifact
 from app.gate_bridge import create_app
 import app.gate_bridge as gate_bridge
+from test_gate_bridge import quote_result
+
+
+def identity_path(request):
+    # Existing cache/admission checks group both authenticated identity readers.
+    if request.method == 'GET' and request.url.path == '/v1/image/quote':
+        return '/user/information'
+    return request.url.path
 
 
 def quote_task():
@@ -27,21 +35,23 @@ def quote_task():
 
 
 def identity_response(request, calls):
+    if request.url.path == '/v1/image/quote' and request.method == 'POST':
+        return httpx.Response(200, json=quote_result())
     token = request.headers.get('authorization')
-    if request.url.path == '/user/information':
-        calls.append((request.url.path, token))
+    if identity_path(request) == '/user/information':
+        calls.append((identity_path(request), token))
         if token in {'Bearer A', 'Bearer B', 'Bearer valid'}:
             return httpx.Response(200, json={'username': token[7:]})
         return httpx.Response(401)
-    if request.url.path == '/user/subscription':
-        calls.append((request.url.path, token))
+    if identity_path(request) == '/user/subscription':
+        calls.append((identity_path(request), token))
         return httpx.Response(200, json={'naiGate': {
             'anlasMonthlyLimit': 100, 'anlasLeft': 80, 'v5LeftToday': 10,
             'v5DailyLimit': 10, 'v5Unlimited': False, 'imageModelScope': 'all',
         }})
-    if request.url.path == '/v1/me':
+    if identity_path(request) == '/v1/me':
         return httpx.Response(404)
-    raise AssertionError(f'unexpected Gate request: {request.url.path}')
+    raise AssertionError(f'unexpected Gate request: {identity_path(request)}')
 
 
 def test_quote_rejects_fake_bearer_before_parsing_large_image(monkeypatch):
@@ -96,7 +106,9 @@ def test_execute_identity_admission_is_retryable_before_generation(monkeypatch):
             pass
 
     def gate(request):
-        assert request.url.path == '/user/information'
+        if request.url.path == '/v1/image/quote' and request.method == 'POST':
+            return httpx.Response(200, json=quote_result())
+        assert identity_path(request) == '/user/information'
         return httpx.Response(200, json={'username': 'fixture'})
 
     async def run():
@@ -117,15 +129,17 @@ def test_queue_status_needs_a_valid_key_even_when_snapshot_is_cached():
     calls = []
 
     def gate(request):
-        calls.append(request.url.path)
-        if request.url.path == '/user/information':
+        if request.url.path == '/v1/image/quote' and request.method == 'POST':
+            return httpx.Response(200, json=quote_result())
+        calls.append(identity_path(request))
+        if identity_path(request) == '/user/information':
             if request.headers.get('authorization') == 'Bearer valid':
                 return httpx.Response(200, json={'username': 'fixture'})
             return httpx.Response(401)
-        if request.url.path == '/queue-status':
+        if identity_path(request) == '/queue-status':
             return httpx.Response(200, json={'global': {'active': 1, 'waiting': 0, 'concurrency': 8},
                                               'image_cooldown_remaining': 0})
-        raise AssertionError(request.url.path)
+        raise AssertionError(identity_path(request))
 
     async def run():
         app = create_app('http://gate.fixture', httpx.MockTransport(gate))
@@ -185,12 +199,14 @@ def test_tag_body_timeout_releases_slot_without_calling_tag_service(monkeypatch)
     calls = []
 
     def gate(request):
-        calls.append(request.url.path)
-        if request.url.path == '/user/information':
+        if request.url.path == '/v1/image/quote' and request.method == 'POST':
+            return httpx.Response(200, json=quote_result())
+        calls.append(identity_path(request))
+        if identity_path(request) == '/user/information':
             return httpx.Response(200, json={'username': 'fixture'})
-        if request.url.path == '/ai/generate-image/suggest-tags':
+        if identity_path(request) == '/ai/generate-image/suggest-tags':
             return httpx.Response(200, json={'tags': []})
-        raise AssertionError(request.url.path)
+        raise AssertionError(identity_path(request))
 
     async def run():
         app = create_app('http://gate.fixture', httpx.MockTransport(gate))
@@ -262,7 +278,7 @@ def test_gate_identity_cache_is_key_scoped_shared_with_me_and_expires(monkeypatc
             assert [token for path, token in calls if path == '/user/information'] == ['Bearer A']
 
             # Keep a large, valid reference payload within the existing 25 MiB
-            # contract and verify it still reaches the estimate path.
+            # contract and verify it still reaches the Gate quote relay.
             large_reference = base64.b64encode(b'x' * 750_000).decode()
             reference_task = quote_task()
             reference_task['parameters'].update(
@@ -304,12 +320,14 @@ def test_quote_identity_lookup_is_single_flight():
     release = asyncio.Event()
 
     async def gate(request):
-        calls.append(request.url.path)
-        if request.url.path == '/user/information':
+        if request.url.path == '/v1/image/quote' and request.method == 'POST':
+            return httpx.Response(200, json=quote_result())
+        calls.append(identity_path(request))
+        if identity_path(request) == '/user/information':
             entered.set()
             await release.wait()
             return httpx.Response(200, json={'username': 'fixture'})
-        raise AssertionError(f'unexpected Gate request: {request.url.path}')
+        raise AssertionError(f'unexpected Gate request: {identity_path(request)}')
 
     async def run():
         app = create_app('http://gate.fixture', httpx.MockTransport(gate))
@@ -332,10 +350,12 @@ def test_identity_cache_entry_count_is_bounded(monkeypatch):
     calls = []
 
     async def gate(request):
-        if request.url.path == '/user/information':
+        if request.url.path == '/v1/image/quote' and request.method == 'POST':
+            return httpx.Response(200, json=quote_result())
+        if identity_path(request) == '/user/information':
             calls.append(request.headers['authorization'])
             return httpx.Response(200, json={'username': request.headers['authorization'][7:]})
-        raise AssertionError(f'unexpected Gate request: {request.url.path}')
+        raise AssertionError(f'unexpected Gate request: {identity_path(request)}')
 
     async def run():
         app = create_app('http://gate.fixture', httpx.MockTransport(gate))
@@ -354,6 +374,8 @@ def test_gate_identity_cache_misses_have_a_global_rate_limit(monkeypatch):
     calls = []
 
     async def gate(request):
+        if request.url.path == '/v1/image/quote' and request.method == 'POST':
+            return httpx.Response(200, json=quote_result())
         calls.append(request.headers.get('authorization'))
         return httpx.Response(401)
 
@@ -376,20 +398,22 @@ def test_gate_identity_lookup_concurrency_is_bounded(monkeypatch):
     calls = []
 
     async def gate(request):
+        if request.url.path == '/v1/image/quote' and request.method == 'POST':
+            return httpx.Response(200, json=quote_result())
         token = request.headers.get('authorization')
-        calls.append((request.url.path, token))
-        if request.url.path == '/user/information':
+        calls.append((identity_path(request), token))
+        if identity_path(request) == '/user/information':
             entered.set()
             await release.wait()
             return httpx.Response(200, json={'username': token[7:]})
-        if request.url.path == '/user/subscription':
+        if identity_path(request) == '/user/subscription':
             return httpx.Response(200, json={'naiGate': {
                 'anlasMonthlyLimit': 100, 'anlasLeft': 80, 'v5LeftToday': 10,
                 'v5DailyLimit': 10, 'v5Unlimited': False, 'imageModelScope': 'all',
             }})
-        if request.url.path == '/v1/me':
+        if identity_path(request) == '/v1/me':
             return httpx.Response(404)
-        raise AssertionError(f'unexpected Gate request: {request.url.path}')
+        raise AssertionError(f'unexpected Gate request: {identity_path(request)}')
 
     async def run():
         app = create_app('http://gate.fixture', httpx.MockTransport(gate))
@@ -409,9 +433,11 @@ def test_quote_slot_is_bounded_and_released_when_client_cancels(monkeypatch):
     monkeypatch.setattr(gate_bridge, 'QUOTE_MAX_CONCURRENCY', 1)
 
     async def gate(request):
-        if request.url.path == '/user/information':
+        if request.url.path == '/v1/image/quote' and request.method == 'POST':
+            return httpx.Response(200, json=quote_result())
+        if identity_path(request) == '/user/information':
             return httpx.Response(200, json={'username': 'fixture'})
-        raise AssertionError(f'unexpected Gate request: {request.url.path}')
+        raise AssertionError(f'unexpected Gate request: {identity_path(request)}')
 
     async def run():
         app = create_app('http://gate.fixture', httpx.MockTransport(gate))
@@ -452,10 +478,12 @@ def test_quote_body_cap_timeout_rate_limits_and_slots_are_bounded(monkeypatch):
     original_validator = gate_bridge.validate_task
 
     async def gate(request):
-        calls.append(request.url.path)
-        if request.url.path == '/user/information':
+        if request.url.path == '/v1/image/quote' and request.method == 'POST':
+            return httpx.Response(200, json=quote_result())
+        calls.append(identity_path(request))
+        if identity_path(request) == '/user/information':
             return httpx.Response(200, json={'username': request.headers['authorization'][7:]})
-        raise AssertionError(f'unexpected Gate request: {request.url.path}')
+        raise AssertionError(f'unexpected Gate request: {identity_path(request)}')
 
     async def run():
         app = create_app('http://gate.fixture', httpx.MockTransport(gate))
@@ -502,10 +530,12 @@ def test_quote_frequency_limits_are_bounded_per_key_and_globally(monkeypatch):
     monkeypatch.setattr(gate_bridge, 'QUOTE_KEY_RATE_PER_WINDOW', 2)
 
     async def gate(request):
-        calls.append(request.url.path)
-        if request.url.path == '/user/information':
+        if request.url.path == '/v1/image/quote' and request.method == 'POST':
+            return httpx.Response(200, json=quote_result())
+        calls.append(identity_path(request))
+        if identity_path(request) == '/user/information':
             return httpx.Response(200, json={'username': request.headers['authorization'][7:]})
-        raise AssertionError(f'unexpected Gate request: {request.url.path}')
+        raise AssertionError(f'unexpected Gate request: {identity_path(request)}')
 
     async def run():
         app = create_app('http://gate.fixture', httpx.MockTransport(gate))

@@ -42,10 +42,14 @@ def _number(parameters, key, default, minimum, maximum, integral=False):
 def validate_task(raw: dict, settings: Settings) -> dict:
     if not isinstance(raw, dict):
         fail(422, "任务必须是对象")
-    allowed = {"request_id", "operation", "model", "prompt", "negative_prompt", "parameters", "label"}
+    allowed = {"request_id", "operation", "model", "prompt", "negative_prompt", "parameters", "label", "cost_limit"}
     if set(raw) - allowed:
         fail(422, "任务包含不支持的顶层字段")
     item = copy.deepcopy(raw)
+    limit = item.get("cost_limit")
+    if limit is not None and (not isinstance(limit, dict) or set(limit) != {"anlas", "v5"}
+            or any(type(value) not in (int, float) or not math.isfinite(value) or value < 0 for value in limit.values())):
+        fail(422, "费用上限必须包含非负的 anlas 和 v5")
     item["request_id"] = checked_uuid(item.get("request_id"))
     operation = item.setdefault("operation", "generate")
     if not isinstance(operation, str) or operation not in OPERATIONS:
@@ -62,7 +66,7 @@ def validate_task(raw: dict, settings: Settings) -> dict:
         fail(422, "parameters 必须是对象")
     _number(p, "width", 832, 64, 4096, True)
     _number(p, "height", 1216, 64, 4096, True)
-    if operation in {"generate", "img2img", "inpaint"} and (p["width"] % 8 or p["height"] % 8):
+    if operation in {"generate", "img2img", "inpaint"} and not p.get("upscaled_enhance") and (p["width"] % 8 or p["height"] % 8):
         fail(422, "宽高必须是 8 的整数倍")
     _number(p, "steps", 28, 1, 100, True)
     _number(p, "scale", 5, 0, 30)

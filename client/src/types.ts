@@ -52,6 +52,7 @@ export type Task = {
   negative_prompt: string;
   parameters: Parameters;
   label: string;
+  cost_limit?: { anlas: number; v5: number };
 };
 export type Result = {
   id: string;

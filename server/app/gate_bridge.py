@@ -19,10 +19,9 @@ from PIL import Image
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from .adapters import MAX_IMAGE_PIXELS, AdapterError, NaiAdapter
+from .adapters import MAX_IMAGE_PIXELS, AdapterError, NaiAdapter, build_request
 from .config import Settings
 from .inpaint import validate_mask_selection
-from .model_policy import effective_model_for_operation
 from .task_validation import validate_task
 
 OPERATIONS = ['generate', 'img2img', 'inpaint', 'encode_vibe', 'upscale', 'augment']
@@ -122,74 +121,6 @@ def _preflight_inpaint_mask(parameters):
         raise HTTPException(422, error)
 
 
-def estimate(task):
-    """Display estimate, not an authorization or billing decision."""
-    p = task['parameters']
-    if task['operation'] == 'encode_vibe':
-        return dict(units=2, unit_label='积分', verified=False, message='编码预计 2 积分；以 Gate 实际结算为准。')
-    if task['operation'] == 'inpaint':
-        _preflight_inpaint_mask(p)
-    w, h, steps = p['width'], p['height'], p['steps']
-    if task['operation'] in ('upscale', 'augment'):
-        try:
-            with Image.open(io.BytesIO(base64.b64decode(p.get('image',''), validate=True))) as image:
-                w,h=image.size
-            if min(w,h)<64 or max(w,h)>8192 or w*h>3145728:
-                raise ValueError('image size')
-        except Exception:
-            raise HTTPException(422, '请选择有效源图片，最多 3145728 像素') from None
-        if task['operation']=='upscale':
-            cost=next(cost for pixels,cost in ((1048576,1),(1747627,2),(2446678,3),(3145728,4)) if w*h<=pixels)
-        else:
-            if w*h<1011712:
-                ratio=math.sqrt(1048576/(w*h));w,h=math.floor(w*ratio),math.floor(h*ratio)
-            base=max(2,math.ceil(w*h*(2.951823174884865e-6+5.753298233447344e-7*28)))
-            cost=base*3+5 if p.get('req_type','lineart')=='bg-removal' else (0 if w*h<=1048576 else base)
-        return dict(units=cost,unit_label='积分',verified=False,message='按源图实际尺寸估算；以 Gate 结算为准。')
-    model = effective_model_for_operation(task['model'], task['operation'])
-    # 面板多张任务逐张发送，所以这里预估单次请求；规则与 Gate 首张减免一致。
-    plain = (steps <= 28 and 0 < w*h <= 1024*1024
-             and not p.get('controlnet_model') and not p.get('controlnet_condition') and not p.get('characterReferences'))
-    precise = len(p.get('character_reference_images') or p.get('director_reference_images_cached') or [])
-    vibes = len(p.get('reference_image_multiple') or p.get('reference_image_multiple_cached') or [])
-    v5 = model.startswith('nai-diffusion-5')
-    if v5 and plain and not precise and not vibes:
-        return dict(units=1, unit_label='V5单位', verified=False, message='暂按每张 1 V5 单位估算；Gate 自动切换 Medium 时按其配置折算，实际模型与扣额以 Gate 为准。')
-    factor = (1.4 if p.get('sm_dyn') else 1.2) if p.get('sm') else 1
-    cost = math.ceil(w*h*(2.951823174884865e-6 + 5.753298233447344e-7*steps))*factor
-    if v5:
-        cost *= 1.5
-    if task['operation'] == 'inpaint' or p.get('mask'):
-        # 与发送的 API 参数一致：未提供 img2img.strength 时局部重绘按 1 计价。
-        inpaint = p.get('img2img') or {}
-        strength = inpaint.get('strength', 1) if isinstance(inpaint, dict) else None
-        if type(strength) not in (int, float) or not math.isfinite(strength) or not 0 <= strength <= 1:
-            raise HTTPException(422, '局部重绘强度应为 0 到 1 的数值')
-        # V5 重绘实扣未按强度打折；这里仅调整报价，生成参数仍原样发送。
-        if model.startswith('nai-diffusion-4'):
-            cost *= strength
-    elif p.get('image'):
-        cost *= p.get('strength', 1)
-    cost = max(2, math.ceil(cost))
-    if not v5 and plain:
-        cost = 0
-    cost += precise*5 + (max(0, vibes-4)*2 if 'diffusion-4' in model else 0)
-    pending=p.get('vibe_pending_indices',[])
-    encoding = 0
-    if isinstance(pending, list) and model.startswith('nai-diffusion-4'):
-        sources = p.get('reference_image_multiple', [])
-        extracted = p.get('reference_information_extracted_multiple', [])
-        if any(type(index) is not int or not 0 <= index < len(sources) for index in pending):
-            raise HTTPException(422, 'Vibe 待编码图片索引无效')
-        # Submission caches by model, source bytes and extraction amount. The
-        # model is shared by this task; repeated references reuse one encoding.
-        encoding = 2 * len({(sources[index], extracted[index] if index < len(extracted) else 1) for index in pending})
-    return dict(units=cost+encoding, generation_units=cost, encoding_units=encoding, unit_label='积分', verified=False,
-                message=(f'包含首次 Vibe 编码 {encoding} 积分；编码复用后每张预计 {cost} 积分。' if encoding else
-                         '参数估算；Gate 自动切换 Medium 时会调整参数与扣额，以 Gate 实际结算为准。' if v5 else
-                         '参数估算；Gate 的权限、参数限制和实际结算优先。'))
-
-
 def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
     gate_url = (gate_url or os.environ.get('WORKBENCH_GATE_URL', 'http://nai-gate:8000')).rstrip('/')
     static = Path(os.environ.get('WORKBENCH_STATIC_DIR', Path(__file__).resolve().parents[2]/'client/dist')).resolve()
@@ -239,6 +170,49 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
                                 {401:'Key 无效或已更换',403:'Key 已禁用或过期',429:'请求过于频繁'}.get(response.status_code, 'Gate 暂时不可用'))
         return response.json()
 
+    async def gate_quote(token, query):
+        try:
+            async with httpx.AsyncClient(base_url=gate_url, timeout=30, follow_redirects=False,
+                                        trust_env=False, transport=transport) as client:
+                async with client.stream('POST', '/v1/image/quote', json=query,
+                        headers={'Authorization': 'Bearer '+token}) as response:
+                    raw = bytearray()
+                    async for chunk in response.aiter_bytes(4096):
+                        if len(raw) + len(chunk) > 65536:
+                            raise HTTPException(502, 'Gate 报价响应过大')
+                        raw.extend(chunk)
+                    status = response.status_code
+        except httpx.HTTPError:
+            raise HTTPException(502, '暂时无法连接 Gate 获取报价') from None
+        if status in (404, 405):
+            raise HTTPException(503, 'Gate 尚未提供报价接口，请先更新 Gate')
+        try:
+            value = json.loads(raw)
+        except (ValueError, RecursionError):
+            raise HTTPException(502, 'Gate 报价响应无效') from None
+        if status != 200:
+            message = value.get('error', {}).get('message') if isinstance(value, dict) and isinstance(value.get('error'), dict) else None
+            raise HTTPException(status if status in (400, 401, 402, 403, 409, 413, 422, 429) else 502,
+                                message[:600] if isinstance(message, str) else 'Gate 暂时无法报价')
+        names = ('anlas', 'v5', 'generation_anlas', 'encoding_anlas')
+        if (not isinstance(value, dict) or value.get('source') != 'gate'
+                or any(type(value.get(name)) not in (int, float) or not math.isfinite(value[name]) or value[name] < 0 for name in names)
+                or (value['anlas'] > 0 and value['v5'] > 0)):
+            raise HTTPException(502, 'Gate 返回的费用格式无效')
+        for name in ('cost_limit', 'encoding_cost_limit'):
+            limit = value.get(name)
+            if (not isinstance(limit, dict) or set(limit) != {'anlas', 'v5'}
+                    or any(type(n) not in (int, float) or not math.isfinite(n) or n < 0 for n in limit.values())):
+                raise HTTPException(502, 'Gate 返回的费用上限无效')
+        notes = value.get('notes', [])
+        if not isinstance(notes, list) or any(not isinstance(note, str) for note in notes):
+            raise HTTPException(502, 'Gate 返回的报价说明无效')
+        v5 = value['v5'] > 0
+        return {**value, 'units': value['v5'] if v5 else value['anlas'],
+                'generation_units': value['v5'] if v5 else value['generation_anlas'],
+                'encoding_units': value['encoding_anlas'], 'unit_label': 'V5单位' if v5 else '积分',
+                'verified': False, 'message': '；'.join(notes) or 'Gate 当前报价；提交时复核费用。'}
+
     async def legacy_free_quota(token):
         # /v1/me reads Gate's local counters, not the official account. Older
         # Gate versions may omit the dedicated free-image counter: never use
@@ -261,10 +235,10 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
         # and must not be presented as an unlimited allowance.
         return None
 
-    async def fetch_gate_identity(digest, token):
+    async def fetch_gate_identity(digest, token, read_only=False):
         current = asyncio.current_task()
         try:
-            info = await gate_get('/user/information', token)
+            info = await gate_get('/v1/image/quote' if read_only else '/user/information', token)
             username = info.get('username') if isinstance(info, dict) else None
             outcome = (200, username, '') if isinstance(username, str) else (502, None, 'Gate 暂时不可用')
         except HTTPException as exc:
@@ -290,7 +264,7 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
                     identity_cache.popitem(last=False)
         return outcome
 
-    async def gate_username(token):
+    async def gate_username(token, *, read_only=False):
         digest = hashlib.sha256(token.encode()).hexdigest()
         now = _security_now()
         async with identity_lock:
@@ -312,7 +286,7 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
                 if len(identity_inflight) >= GATE_IDENTITY_LOOKUP_MAX_CONCURRENCY:
                     raise HTTPException(503, '身份验证暂时繁忙，请稍后再试', headers={'Retry-After': '1'})
                 identity_lookup_events.append(now)
-                task = asyncio.create_task(fetch_gate_identity(digest, token))
+                task = asyncio.create_task(fetch_gate_identity(digest, token, read_only))
                 identity_inflight[digest] = task
 
         if outcome is None:
@@ -503,17 +477,24 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
         await quote_slots.acquire()
         try:
             digest = hashlib.sha256(token.encode()).hexdigest()
-            await gate_username(token)
+            await gate_username(token, read_only=True)
             await admit_quote(digest)
             raw = await quote_task_bytes(request)
-            if quote_parse_slots.locked():
-                raise HTTPException(429, '报价解析繁忙，请稍后再试', headers={'Retry-After': '1'})
             await quote_parse_slots.acquire()
             try:
                 task = parse_quote_task(raw)
-                return estimate(task)
+                if task['operation'] == 'inpaint':
+                    _preflight_inpaint_mask(task['parameters'])
+                try:
+                    path, payload, _ = await asyncio.to_thread(build_request, task)
+                except AdapterError as exc:
+                    raise HTTPException(422, exc.message) from None
+                operation = 'generate-image' if path.endswith('generate-image-stream') else path.rsplit('/', 1)[-1]
+                query = dict(operation=operation, payload=payload,
+                             pending_vibe_indices=task['parameters'].get('vibe_pending_indices', []))
             finally:
                 quote_parse_slots.release()
+            return await gate_quote(token, query)
         finally:
             quote_slots.release()
 

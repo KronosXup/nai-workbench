@@ -22,16 +22,9 @@ import { directorEmotions, directorMatchesJob, directorSourceIssue, directorTask
 import type { DirectorDraft, DirectorSource, DirectorTool } from "./director";
 import type { Job, LocalImage, Operation, Task } from "./types";
 import { configurationIssueFor } from "./taskValidation";
+import { withQuote, type ImageQuote as Quote } from './quote';
 import * as local from "./storage";
 import "./directorWorkspace.css";
-
-type Quote = {
-  units: number;
-  generation_units?: number;
-  unit_label?: string;
-  verified: boolean;
-  message: string;
-};
 
 type QuoteFailure = {
   message: string;
@@ -135,7 +128,7 @@ export default function DirectorWorkspace(p: Props) {
   );
   const matchingPending = matchingJob && ["queued", "waiting", "running", "unknown"].includes(matchingJob.status);
   const matchingWorking = matchingJob && ["queued", "waiting", "running"].includes(matchingJob.status);
-  const submitBlocked = Boolean(issue || quoteError?.blocksSubmit || matchingPending);
+  const submitBlocked = Boolean(!quote || issue || quoteError?.blocksSubmit || matchingPending);
 
   useEffect(() => {
     const version = ++quoteVersion.current;
@@ -185,8 +178,8 @@ export default function DirectorWorkspace(p: Props) {
 
   function submit() {
     const currentTask = directorTask(state);
-    if (currentIssue(currentTask, state, p.operations) || quoteError?.blocksSubmit || matchingPending) return;
-    p.onSubmit(currentTask);
+    if (!quote || currentIssue(currentTask, state, p.operations) || quoteError?.blocksSubmit || matchingPending) return;
+    p.onSubmit(withQuote(currentTask, quote));
   }
 
   const sourceValid = Boolean(state.source && !directorSourceIssue(state.source));
