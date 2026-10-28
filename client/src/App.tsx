@@ -367,6 +367,7 @@ export default function App() {
   const [quote, setQuote] = useState<ImageQuote | null>(null);
   const [quoteError, setQuoteError] = useState<QuoteError | null>(null);
   const quoteVersion = useRef(0);
+  const quoteController = useRef<AbortController | null>(null);
   const [galleryQuery, setGalleryQuery] = useState("");
   const generation = useRef(0),
     draftRef = useRef(draft),
@@ -851,24 +852,46 @@ export default function App() {
     const t = setTimeout(() => setNotice(""), 6000);
     return () => clearTimeout(t);
   }, [notice]);
+  const models = caps?.models?.length ? caps.models : fallbackModels;
+  const effectiveOperation = page === "batch" && !usesGenerationSettings(draft.operation) ? "generate" : draft.operation;
+  const configurationIssue = configurationIssueFor(activeEnhance
+    ? enhanceTask(taskFor(draft.prompt, draft, 'Enhance', 'img2img'), activeEnhance.image, activeEnhance.settings)
+    : { ...draft, operation: effectiveOperation }, models, caps?.operations);
   useEffect(() => {
     setQuote(null);
     setQuoteError(null);
     quoteVersion.current++;
     if (!api || (page !== 'draw' && page !== 'batch')) return;
     const timer = setTimeout(() => void requestQuote(true), 450);
-    return () => clearTimeout(timer);
+    return () => { clearTimeout(timer); quoteController.current?.abort(); };
   }, [
     api,
     draft.model,
-    draft.operation,
+    effectiveOperation,
     page,
-    draft.prompt,
-    draft.artist,
-    draft.quality,
-    draft.negative,
-    draft.parameters,
-    activeEnhance,
+    // Price inputs only; prompt text, sampler, CFG and seed keep the current quote.
+    draft.parameters.width,
+    draft.parameters.height,
+    draft.parameters.steps,
+    draft.parameters.sm,
+    draft.parameters.sm_dyn,
+    effectiveOperation === 'img2img' ? draft.parameters.strength : null,
+    effectiveOperation === 'inpaint' ? draft.parameters.img2img?.strength : null,
+    effectiveOperation !== 'generate' ? draft.parameters.image : null,
+    effectiveOperation === 'inpaint' ? draft.parameters.mask : null,
+    draft.parameters.reference_image_multiple,
+    draft.parameters.reference_information_extracted_multiple,
+    draft.parameters.character_reference_images,
+    draft.parameters.vibe_files,
+    draft.parameters.vibe_encodings,
+    draft.parameters.controlnet_model,
+    draft.parameters.controlnet_condition,
+    effectiveOperation === 'augment' ? draft.parameters.req_type : null,
+    effectiveOperation === 'upscale' ? draft.parameters.scale_factor : null,
+    activeEnhance?.image,
+    activeEnhance?.settings.scale,
+    activeEnhance?.settings.strength,
+    configurationIssue?.message,
   ]);
   useEffect(() => {
     if (
@@ -1138,6 +1161,9 @@ export default function App() {
     if (!api) return;
     const seq = generation.current;
     const version = ++quoteVersion.current;
+    quoteController.current?.abort();
+    const controller = new AbortController();
+    quoteController.current = controller;
     setQuoteError(null);
     setQuote(null);
     try {
@@ -1151,10 +1177,12 @@ export default function App() {
       if (configurationIssueFor(task, caps?.models ?? fallbackModels, caps?.operations)) return;
       delete task.parameters.vibe_source_images;
       delete task.parameters.vibe_source_files;
-      const q = await api.request<ImageQuote>("/quote", task);
-      if (seq === generation.current && version === quoteVersion.current) { setQuote({...q, requested_model:task.model}); setQuoteError(null); }
+      const q = await api.request<ImageQuote>("/quote", task, undefined, controller.signal);
+      if (!controller.signal.aborted && seq === generation.current && version === quoteVersion.current) { setQuote({...q, requested_model:task.model}); setQuoteError(null); }
     } catch (e) {
-      if (seq === generation.current && version === quoteVersion.current) { setQuote(null); setQuoteError({ message: errorText(e), connection: e instanceof ApiError && [401, 403].includes(e.status), retryable: !(e instanceof ApiError) || e.status >= 500 || e.status === 408 || e.status === 429 }); if (!quiet) fail(e); }
+      if (!controller.signal.aborted && seq === generation.current && version === quoteVersion.current) { setQuote(null); setQuoteError({ message: errorText(e), connection: e instanceof ApiError && [401, 403].includes(e.status), retryable: !(e instanceof ApiError) || e.status >= 500 || e.status === 408 || e.status === 429 }); if (!quiet) fail(e); }
+    } finally {
+      if (quoteController.current === controller) quoteController.current = null;
     }
   }
   function acceptImage(kind: ImageUse, image: ImportedImage) {
@@ -1649,7 +1677,6 @@ export default function App() {
       }
     }
   }
-  const models = caps?.models?.length ? caps.models : fallbackModels;
   const importModel = effectiveModelForOperation(draft.model, draft.operation);
   const importModelCaps = models.find(model => model.id === importModel);
   const vibeUnavailable = importModel.startsWith('nai-diffusion-5') ? 'V5 不支持 Vibe Transfer'
@@ -1668,10 +1695,6 @@ export default function App() {
     ...(caps?.operations && !caps.operations.includes('upscale') ? {upscale: '当前服务未提供图片放大'} : {}),
     ...(caps?.operations && !caps.operations.includes('augment') ? {augment: '当前服务未提供导演工具'} : {}),
   };
-  const effectiveOperation = page === "batch" && !usesGenerationSettings(draft.operation) ? "generate" : draft.operation;
-  const configurationIssue = configurationIssueFor(activeEnhance
-    ? enhanceTask(taskFor(draft.prompt, draft, 'Enhance', 'img2img'), activeEnhance.image, activeEnhance.settings)
-    : { ...draft, operation: effectiveOperation }, models, caps?.operations);
   const generationBlocked = Boolean(!quote || configurationIssue || (quoteError && !quoteError.retryable));
   const batchCapacityIssue = batchTasks().length + queuePending > MAX_PENDING
     ? `本次 ${batchTasks().length} 张，队列还可加入 ${Math.max(0, MAX_PENDING - queuePending)} 张。` : "";

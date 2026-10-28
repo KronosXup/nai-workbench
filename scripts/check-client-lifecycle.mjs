@@ -133,7 +133,7 @@ function quoteHarness() {
     caps: {models, operations:['generate','img2img','inpaint','upscale','augment','encode_vibe']},
     readDirectorDraft, directorSourceIssue, directorFromJob,
     fallbackModels: models, configurationIssueFor, usesGenerationSettings, ApiError, generationParameters, composePrompts,
-    generation: {current:1}, quoteVersion: {current:0}, uuid, joinPrompt,
+    generation: {current:1}, quoteVersion: {current:0}, quoteController: {current:null}, uuid, joinPrompt,
     resolveVibeReference, VibeReferenceError, vibeKey:(image,model,extracted)=>`${image}|${model}|${extracted}`,
     stringKeys: ['artist','quality','negative'],
     draftRef: {current: state.draft},
@@ -743,6 +743,71 @@ const checks = [
     await h.fn('requestQuote')(true);
     assert.equal(h.state.requests.at(-1).task.operation,'generate');
     assert.equal(h.state.requests.at(-1).task.parameters.image,undefined);
+  }],
+  ['Only price or configuration changes invalidate the displayed quote', async () => {
+    let dependencies;
+    function visit(node) {
+      if (ts.isCallExpression(node) && node.expression.getText(source) === 'useEffect'
+          && node.arguments[0]?.getText(source).includes('quoteVersion.current++'))
+        dependencies = node.arguments[1].getText(source);
+      ts.forEachChild(node, visit);
+    }
+    visit(source);
+    assert.ok(dependencies);
+    const readInputs = new Function('api', 'draft', 'page', 'effectiveOperation', 'activeEnhance', 'configurationIssue',
+      `return ${dependencies};`);
+    const h = quoteHarness();
+    const inputs = (enhance = null, issue = undefined) => readInputs(h.scope.api, h.state.draft, h.state.page,
+      h.state.draft.operation, enhance, issue);
+    const changed = (before, after) => before.some((value, index) => !Object.is(value, after[index]));
+    const original = inputs();
+    for (const field of ['prompt','negative','artist','quality']) {
+      h.fn('patchDraft')({[field]:'edited text'});
+      assert.equal(changed(original, inputs()),false,field);
+    }
+    for (const [field, value] of Object.entries({scale:8,cfg_rescale:.6,sampler:'k_dpmpp_2m',
+      noise_schedule:'exponential',seed:42,noise:.2,stream:false})) {
+      h.fn('patchDraft')({parameters:{...h.state.draft.parameters,[field]:value}});
+      assert.equal(changed(original, inputs()),false,field);
+    }
+    for (const [field, value] of Object.entries({width:1024,height:1024,steps:40,sm:true,sm_dyn:true,
+      reference_image_multiple:['reference'],reference_information_extracted_multiple:[.5],
+      character_reference_images:['precise'],vibe_encodings:{encoded:'value'}})) {
+      const before = inputs();
+      h.fn('patchDraft')({parameters:{...h.state.draft.parameters,[field]:value}});
+      assert.equal(changed(before, inputs()),true,field);
+    }
+    for (const operation of ['img2img','inpaint']) {
+      h.fn('patchDraft')({operation});
+      const before = inputs();
+      h.fn('patchDraft')({parameters:{...h.state.draft.parameters,
+        ...(operation === 'img2img' ? {strength:.5} : {img2img:{strength:.5}})}});
+      assert.equal(changed(before, inputs()),true,operation+' strength');
+    }
+    const image = {data:'source',width:1024,height:1024};
+    const enhance = {image,settings:{scale:1.5,strength:.5,noise:.1}};
+    assert.equal(changed(inputs(enhance),inputs({...enhance,settings:{...enhance.settings,noise:.2}})),false);
+    assert.equal(changed(inputs(enhance),inputs({...enhance,settings:{...enhance.settings,scale:'max'}})),true);
+    assert.equal(changed(inputs(null,{message:'Invalid reference'}),inputs()),true,
+      'Fixing a configuration issue must restore automatic quoting');
+  }],
+  ['A new quotation aborts the stale request without reporting its cancellation', async () => {
+    const h = quoteHarness();
+    const requests = [];
+    h.scope.api.request = (_route, _task, _method, signal) => new Promise((resolve, reject) => {
+      requests.push({signal,resolve});
+      signal.addEventListener('abort', () => reject(new DOMException('Canceled','AbortError')), {once:true});
+    });
+    const first = h.fn('requestQuote')(true);
+    const second = h.fn('requestQuote')(true);
+    assert.equal(requests[0].signal.aborted,true);
+    assert.equal(requests[1].signal.aborted,false);
+    requests[1].resolve(gatePrice(3));
+    await Promise.all([first,second]);
+    assert.equal(h.state.quote.units,3);
+    assert.equal(h.state.error,null);
+    assert.equal(h.state.failure,null);
+    assert.equal(h.scope.quoteController.current,null);
   }],
   ['Quote failures distinguish invalid settings from retryable network failures', async () => {
     const h = quoteHarness();

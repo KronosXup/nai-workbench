@@ -473,9 +473,11 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
     @app.post('/api/quote')
     async def quote(request: Request):
         token = credential(request)
-        if quote_slots.locked():
-            raise HTTPException(429, '报价处理繁忙，请稍后再试', headers={'Retry-After': '1'})
-        await quote_slots.acquire()
+        try:
+            async with asyncio.timeout(5):
+                await quote_slots.acquire()
+        except TimeoutError:
+            raise HTTPException(429, '报价处理繁忙，请稍后再试', headers={'Retry-After': '1'}) from None
         try:
             digest = hashlib.sha256(token.encode()).hexdigest()
             await gate_username(token, read_only=True)

@@ -109,7 +109,7 @@ export default function DirectorWorkspace(p: Props) {
   const [quoteError, setQuoteError] = useState<QuoteFailure | null>(null);
   const [quoteRefresh, setQuoteRefresh] = useState(0);
 
-  // A fresh quote follows only Director fields; drawing prompts and references never enter it.
+  // Keep the complete current task for validation and submission.
   const stateKey = `${state.model}\u0000${state.tool}\u0000${state.prompt}\u0000${state.emotion}\u0000${state.defry}\u0000${state.source?.data ?? ""}\u0000${state.source?.width ?? 0}\u0000${state.source?.height ?? 0}`;
   const task = useMemo(() => directorTask(state), [stateKey]);
   const issue = currentIssue(task, state, p.operations);
@@ -138,8 +138,10 @@ export default function DirectorWorkspace(p: Props) {
       if (quoteVersion.current === version) quoteVersion.current++;
     };
 
+    const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      void p.api.request<Quote>("/quote", directorTask(state)).then((value) => {
+      const quoteTask = directorTask({ ...state, prompt: '', emotion: 'neutral', defry: 0 });
+      void p.api.request<Quote>("/quote", quoteTask, undefined, controller.signal).then((value) => {
         if (quoteVersion.current !== version) return;
         setQuote(value);
         setQuoteError(null);
@@ -152,11 +154,12 @@ export default function DirectorWorkspace(p: Props) {
 
     return () => {
       window.clearTimeout(timer);
+      controller.abort();
       if (quoteVersion.current === version) quoteVersion.current++;
     };
-  // stateKey intentionally captures exactly the director inputs represented in directorTask.
+  // Director prices depend on the source and tool, not the creative instructions.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.api, stateKey, issue, quoteRefresh]);
+  }, [p.api, state.source?.data, state.source?.width, state.source?.height, state.tool, issue, quoteRefresh]);
 
   useEffect(() => () => {
     quoteVersion.current++;

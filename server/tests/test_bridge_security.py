@@ -429,8 +429,13 @@ def test_gate_identity_lookup_concurrency_is_bounded(monkeypatch):
     asyncio.run(run())
 
 
-def test_quote_slot_is_bounded_and_released_when_client_cancels(monkeypatch):
+@pytest.mark.parametrize('release_mode', ['complete', 'cancel-active', 'cancel-waiting', 'timeout'])
+def test_quote_waits_for_slot_before_reading_body(monkeypatch, release_mode):
     monkeypatch.setattr(gate_bridge, 'QUOTE_MAX_CONCURRENCY', 1)
+    if release_mode == 'timeout':
+        timeout = asyncio.timeout
+        monkeypatch.setattr(gate_bridge.asyncio, 'timeout',
+                            lambda delay: timeout(0.05 if delay == 5 else delay))
 
     async def gate(request):
         if request.url.path == '/v1/image/quote' and request.method == 'POST':
@@ -456,14 +461,36 @@ def test_quote_slot_is_bounded_and_released_when_client_cancels(monkeypatch):
             pending = asyncio.create_task(client.post('/api/quote', headers=headers,
                 content=slow_body(), timeout=None))
             await asyncio.wait_for(body_started.wait(), 2)
-            rejected = await client.post('/api/quote', headers=headers, json=quote_task())
-            assert rejected.status_code == 429
-            pending.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await pending
-            continue_body.set()
-            after_cancel = await client.post('/api/quote', headers=headers, json=quote_task())
-            assert after_cancel.status_code == 200
+            waiting_body_started = asyncio.Event()
+
+            async def waiting_body():
+                waiting_body_started.set()
+                yield raw
+
+            waiting = asyncio.create_task(client.post('/api/quote', headers=headers, content=waiting_body()))
+            if release_mode == 'timeout':
+                response = await waiting
+                assert response.status_code == 429 and response.headers['retry-after'] == '1'
+                assert response.json()['detail'] == '报价处理繁忙，请稍后再试'
+            else:
+                await asyncio.sleep(0.02)
+                assert not waiting.done() and not waiting_body_started.is_set()
+                if release_mode == 'cancel-waiting':
+                    waiting.cancel()
+                    with pytest.raises(asyncio.CancelledError):
+                        await waiting
+            assert not waiting_body_started.is_set()
+            if release_mode == 'cancel-active':
+                pending.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await pending
+            else:
+                continue_body.set()
+                assert (await pending).status_code == 200
+            if release_mode in {'complete', 'cancel-active'}:
+                assert (await asyncio.wait_for(waiting, 2)).status_code == 200
+                assert waiting_body_started.is_set()
+            assert (await client.post('/api/quote', headers=headers, json=quote_task())).status_code == 200
 
     asyncio.run(run())
 
