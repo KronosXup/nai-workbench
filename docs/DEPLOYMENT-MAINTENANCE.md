@@ -12,6 +12,19 @@ ssh -N -L 18001:127.0.0.1:18000 -L 8788:127.0.0.1:8787 用户名@服务器地址
 
 然后在自己电脑访问 `http://127.0.0.1:18001/admin` 和 `http://127.0.0.1:8788`。服务器配置不需要跟着修改。
 
+如果报 `administratively prohibited`，是服务器不允许 SSH 端口转发，需要管理员检查 SSH 转发权限。换本地端口不能解决，也不要为此直接把管理后台开放到公网。
+
+## 公开镜像提示拒绝访问
+
+若镜像名称正确，但拉取时报 `unauthorized` 或 `denied`，可以在仓库根目录用临时空配置重试：
+
+```sh
+docker_config_dir=$(mktemp -d)
+DOCKER_CONFIG="$docker_config_dir" bash deploy.sh
+```
+
+这次运行不会使用原来保存的 Docker 登录信息，也不会修改它们。更新时把最后一段换成 `bash deploy.sh update`。若仍然失败，再检查服务器到 GHCR 的网络。
+
 ## NAS 与局域网访问
 
 - 飞牛等 NAS 的数据目录选在长期存储卷上，不要使用临时目录。Docker Compose 可以从 SSH 终端运行。
@@ -25,7 +38,7 @@ ssh -N -L 18001:127.0.0.1:18000 -L 8788:127.0.0.1:8787 用户名@服务器地址
 
 ### 只更新工作台
 
-使用安装向导的用户，在仓库根目录运行 `bash deploy.sh update`，或指定版本 `bash deploy.sh update v0.1.0-beta.4`。向导只更新工作台，保留更新前的 `.env.before-update`；这个文件含凭据，不要分享。下载失败不会改配置；启动失败会恢复配置，但仍需检查容器是否正常。它不会自动更新 Gate。
+使用安装向导的用户，在仓库根目录运行 `bash deploy.sh update`，或指定版本 `bash deploy.sh update v0.1.0-beta.5`。向导只更新工作台，保留更新前的 `.env.before-update`；这个文件含凭据，不要分享。下载失败不会改配置；启动失败会恢复配置，但仍需检查容器是否正常。它不会自动更新 Gate。
 
 手动部署的用户：保持现有站点地址和 Gate Key，先结束当前生成任务。在 `.env` 中把 `WORKBENCH_IMAGE` 改成要升级的版本，然后执行：
 
@@ -105,9 +118,11 @@ curl -fsS http://127.0.0.1:18000/healthz
 
 ## 验证范围和参考
 
-配套模板的 Gate 配置名、权限和后台行为已按固定上游版本核对；Compose 示例做配置解析检查。工作台 beta.4 镜像已在现有 NAS 上部署并检查 HTTPS、健康与静态资源；这不等于对每种新服务器环境都做过整套安装。新 Gate 账号是否可用，仍需在自己的环境完成登录和必要的功能验证。
+2026-09-27 在已有 Docker 的 NAS 上，用独立目录和空数据完成了首次安装演练：Gate `5940e0e60d19`、工作台 `v0.1.0-beta.5`。实际验证了 Gate 构建启动、后台登录与创建 Key、工作台登录、更新后沿用原 Key，以及只安装工作台连接已有 Gate。更新没有重建 Gate，原有服务没有变动。
 
-- [Gate README](https://github.com/fangchen2003/service-tools/blob/4b0ff693b3ed6aa4f2006162453d32783c011718/README.md)
-- [Gate 环境变量示例](https://github.com/fangchen2003/service-tools/blob/4b0ff693b3ed6aa4f2006162453d32783c011718/.env.example)
-- [工作台 Release](https://github.com/KronosXup/nai-workbench/releases/tag/v0.1.0-beta.4)
+演练使用假官方 Token，运行容器禁止出网；未测试真实生成或消耗 Anlas。浏览器通过临时局域网入口检查，未验证公网域名证书申请，也不包含全新操作系统上的 Docker 安装。目标服务器的网络、SSH 转发权限和官方 Token 仍需单独确认。
+
+- [本次验证的 Gate README](https://github.com/fangchen2003/service-tools/blob/5940e0e60d191a83f314098b2528c650b2deab13/README.md)
+- [本次验证的 Gate 环境变量示例](https://github.com/fangchen2003/service-tools/blob/5940e0e60d191a83f314098b2528c650b2deab13/.env.example)
+- [工作台 Release](https://github.com/KronosXup/nai-workbench/releases/tag/v0.1.0-beta.5)
 - [Gate 版本与接口要求](GATE-COMPATIBILITY.md)

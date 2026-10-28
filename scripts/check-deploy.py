@@ -9,7 +9,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 BASH = str(Path(os.environ.get('ProgramFiles', 'C:/Program Files')) / 'Git/bin/bash.exe') if os.name == 'nt' else shutil.which('bash')
-COMMIT = '4b0ff693b3ed6aa4f2006162453d32783c011718'
+COMMIT = 'abcdef0123456789abcdef0123456789abcdef01'
 
 
 class InstallerTests(unittest.TestCase):
@@ -34,6 +34,7 @@ case " $* " in *" up "*) [[ "${FAIL_UP:-0}" != 1 ]] || exit 1;; esac
             'git': f'''printf 'git %s\\n' "$*" >> "$CALL_LOG"
 case "$1" in clone) mkdir -p "$3";; esac
 case "$*" in *'rev-parse HEAD') printf '%s\\n' "${{FAKE_COMMIT:-{COMMIT}}}";; esac
+case "$*" in *'status --porcelain') [[ "${{FAKE_DIRTY:-0}}" != 1 ]] || printf ' M Dockerfile\\n';; esac
 ''',
         }.items():
             path = self.bin / name
@@ -56,10 +57,33 @@ case "$*" in *'rev-parse HEAD') printf '%s\\n' "${{FAKE_COMMIT:-{COMMIT}}}";; es
         env = self.root / 'deploy/stack/.env'
         original = env.read_bytes()
         self.assertIn(f"ADMIN_PASSWORD='{password}'", original.decode())
+        self.assertIn(f'GATE_IMAGE=nai-gate:{COMMIT[:12]}', original.decode())
         self.assertNotIn(password, self.output)
         self.assertNotIn(token, self.log.read_text())
         self.assertEqual(self.run_script('1\n'), 0, self.output)
         self.assertEqual(env.read_bytes(), original)
+        calls = self.log.read_text()
+        self.assertEqual(calls.count('git clone '), 1)
+        for operation in [' checkout ', ' fetch ', ' pull ', ' reset ']:
+            self.assertFalse(any(operation in line for line in calls.splitlines() if line.startswith('git ')))
+
+    def test_existing_gate_revision_and_image_tag_are_kept(self):
+        stack = self.root / 'deploy/stack'
+        (stack / 'gate').mkdir()
+        original = b"ADMIN_PASSWORD='dummy'\nNAI_TOKENS='dummy'\nGATE_IMAGE=local-gate:kept\n"
+        (stack / '.env').write_bytes(original)
+        self.assertEqual(self.run_script('1\n', FAKE_COMMIT='12345678' * 5), 0, self.output)
+        self.assertEqual((stack / '.env').read_bytes(), original)
+        self.assertNotIn('git clone ', self.log.read_text())
+
+    def test_modified_gate_checkout_is_not_built(self):
+        stack = self.root / 'deploy/stack'
+        (stack / 'gate').mkdir()
+        original = b"ADMIN_PASSWORD='dummy'\nNAI_TOKENS='dummy'\nGATE_IMAGE=local-gate:kept\n"
+        (stack / '.env').write_bytes(original)
+        self.assertNotEqual(self.run_script('1\n', FAKE_DIRTY='1'), 0)
+        self.assertEqual((stack / '.env').read_bytes(), original)
+        self.assertNotIn('build gate', self.log.read_text())
 
     def test_interrupted_secret_input_writes_nothing(self):
         self.assertNotEqual(self.run_script('1\npassword\n'), 0)

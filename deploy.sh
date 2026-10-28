@@ -3,7 +3,6 @@
 set -Eeuo pipefail
 umask 077
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-GATE_COMMIT=4b0ff693b3ed6aa4f2006162453d32783c011718
 IMAGE=ghcr.io/kronosxup/nai-workbench
 trap 'printf "\n操作未完成；配置和数据已保留。请处理上面的错误后重试。\n" >&2' ERR
 
@@ -57,6 +56,7 @@ access_help() {
 }
 install_stack() {
     select_mode stack
+    local fresh_gate=0 gate_commit temp
     if [[ ! -e "$DIR/.env" ]]; then
         secret '设置 Gate 后台密码（输入不显示）：'; password=$REPLY
         secret '粘贴 NovelAI Persistent API Token（输入不显示）：'; token=$REPLY
@@ -69,11 +69,23 @@ install_stack() {
         printf '沿用已有配置，不重新设置密码或 Token。\n'
     fi
     if [[ ! -d "$DIR/gate" ]]; then
+        # Clone the upstream default branch as it exists at installation time.
+        # An existing checkout is deliberately left at its current revision.
         git clone https://github.com/fangchen2003/service-tools.git "$DIR/gate"
-        git -C "$DIR/gate" checkout "$GATE_COMMIT"
+        fresh_gate=1
     fi
-    [[ "$(git -C "$DIR/gate" rev-parse HEAD)" == "$GATE_COMMIT" ]] || die '此目录的 Gate 版本已被调整。请按维护说明处理，不会覆盖它。'
+    gate_commit=$(git -C "$DIR/gate" rev-parse HEAD)
+    [[ "$gate_commit" =~ ^[0-9a-f]{40}$ ]] || die '无法确认 Gate 源码版本，请检查下载是否完整。'
     [[ -z "$(git -C "$DIR/gate" status --porcelain)" ]] || die 'Gate 源码有本地修改，停止自动安装以免覆盖。'
+    if [[ "$fresh_gate" == 1 ]]; then
+        # Save the actual revision in the image name so a later build has a
+        # distinct tag and the previous image remains available for rollback.
+        temp=$(mktemp "$DIR/.env.gate.XXXXXX")
+        awk '!/^[[:space:]]*GATE_IMAGE[[:space:]]*=/' "$DIR/.env" > "$temp"
+        printf '\nGATE_IMAGE=nai-gate:%s\n' "${gate_commit:0:12}" >> "$temp"
+        mv "$temp" "$DIR/.env"
+    fi
+    printf '使用 Gate 源码版本：%s\n' "${gate_commit:0:12}"
     compose config --quiet
     compose pull workbench
     compose build gate

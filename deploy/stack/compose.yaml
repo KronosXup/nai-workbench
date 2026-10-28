@@ -3,7 +3,7 @@ name: nai-stack
 services:
   gate:
     build: ./gate
-    image: ${GATE_IMAGE:-nai-gate:4b0ff69}
+    image: ${GATE_IMAGE:-nai-gate:local}
     restart: unless-stopped
     environment:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD}

@@ -48,6 +48,8 @@ bash deploy.sh https
 
 按提示填写域名即可。运行前需将域名解析到服务器，并放行 TCP **80、443**；这两个端口不能已被其他服务占用。向导会启动 Caddy 申请和续签证书，之后大家通过 `https://你的域名` 访问工作台，后台仍通过上面的 SSH 方式访问。
 
+使用阿里云中国内地服务器时，公开网站需先完成备案；香港或海外节点不需要这项大陆 ICP 备案。直接使用 IP 或配置 HTTPS 不能代替备案，详见[阿里云说明](https://www.alibabacloud.com/help/en/icp-filing/basic-icp-service/product-overview/icp-filing-requirements-for-a-regular-website)。
+
 **已有反向代理，或选择了“只安装工作台”**：沿用现有 HTTPS 入口，转发到服务器的 `127.0.0.1:8787`。反代也在 Docker 容器里时，使用共同网络中的工作台服务名，详见[连接说明](GATE-FRONTEND.md)。NAS 穿透、纯 IP 证书等特殊环境见[维护说明](DEPLOYMENT-MAINTENANCE.md#nas-与局域网访问)。
 
 换访问地址前，先在工作台设置中导出图库备份，再到新地址导入。浏览器不会自动搬运旧地址下的数据。
@@ -71,4 +73,4 @@ bash deploy.sh update
 - **工作台打开了但不能登录**：核对 Gate 地址和 Key；官方 Token 不能直接用来登录工作台。
 - **ARM 设备或自定义部署**：见[手动部署说明](GATE-FRONTEND.md)。
 
-配套首次安装固定使用工作台 `v0.1.0-beta.5` 和 Gate `4b0ff69`。版本与接口要求见[兼容说明](GATE-COMPATIBILITY.md)。
+配套首次安装使用工作台 `v0.1.0-beta.5`，Gate 从原作者默认分支下载安装当时的最新源码，实际提交号会写入 `.env` 的 `GATE_IMAGE`。再次运行向导会沿用已有 Gate 源码，不会自动升级它。版本与接口要求见[兼容说明](GATE-COMPATIBILITY.md)。
