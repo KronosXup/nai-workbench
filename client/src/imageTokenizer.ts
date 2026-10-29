@@ -20,7 +20,7 @@ const loaded = new Map<Kind, Promise<Tokenizer>>();
 export function imageTokenizer(kind: Kind): Promise<Tokenizer> {
   const existing = loaded.get(kind);
   if (existing) return existing;
-  const promise = fetch(`/tokenizers/${kind}.json`)
+  const promise = fetch(`tokenizers/${kind}.json`)
     .then(async response => {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const config = await response.json();

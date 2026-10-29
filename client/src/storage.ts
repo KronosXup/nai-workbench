@@ -222,10 +222,18 @@ async function canvasProjects(scope: string): Promise<{ rows: CanvasProjectRecor
   return { rows, invalid, invalidHashes };
 }
 export function download(blob: Blob, name: string) {
+  // Upstream ZIP entries often reuse image_0.png, including in old gallery rows.
+  // Rename only the downloaded image; keep its original bytes and stored record.
+  const extension = name.match(/\.(png|jpe?g|webp|gif|avif)$/i)?.[1].toLowerCase()
+    ?? ({ "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp",
+      "image/gif": "gif", "image/avif": "avif" } as Record<string, string>)[blob.type];
+  const downloadName = extension
+    ? `nai-${new Date().toISOString().replace(/[-:.]/g, "")}-${uuid()}.${extension}`
+    : name;
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = name;
+  a.download = downloadName;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }

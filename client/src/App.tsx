@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { ApiError, type Api } from "./api";
 import { verifyGateHealth } from "./connection";
+import { DISCORD_SESSION_ACCESS_TOKEN, consumeLoginError, loginErrorMessage, logoutWorkbenchSession, restoreWorkbenchAccess } from "./auth";
 import { configurationIssueFor, effectiveModelForOperation, usesGenerationSettings } from "./taskValidation";
 import type { QuoteError } from "./taskValidation";
 import { GateApi, MAX_PENDING } from "./gateApi";
@@ -296,9 +297,10 @@ export default function App() {
   const [token, setToken] = useState(
     () => sessionStorage.getItem("nai-wb-token") || localStorage.getItem("nai-wb-remembered-token") || "",
   );
-  const [loginToken, setLoginToken] = useState(token);
+  const [loginToken, setLoginToken] = useState(token === DISCORD_SESSION_ACCESS_TOKEN ? "" : token);
+  const [loginError] = useState(() => loginErrorMessage(new URL(location.href).searchParams.get('login_error')));
   const [rememberDevice, setRememberDevice] = useState(
-    () => Boolean(token && localStorage.getItem("nai-wb-remembered-token") === token),
+    () => Boolean(token && token !== DISCORD_SESSION_ACCESS_TOKEN && localStorage.getItem("nai-wb-remembered-token") === token),
   );
   const [api, setApi] = useState<GateApi | null>(null);
   const suggestTags = useCallback(async (model: string, fragment: string): Promise<TagSuggestion[]> => {
@@ -310,6 +312,8 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const disconnectPending = useRef(false);
   const [draft, setDraft] = useState<Draft>(newDraft);
   const [loaded, setLoaded] = useState(false);
   const [rows, setRows] = useState<LocalImage[]>([]);
@@ -331,7 +335,7 @@ export default function App() {
   const [encodingWaitReason, setEncodingWaitReason] = useState<QueueWaitReason>();
   const [queueNow, setQueueNow] = useState(() => Date.now() / 1000);
   const [notice, setNotice] = useState("");
-  const [failure, setFailure] = useState("");
+  const [failure, setFailure] = useState(loginError);
   const [userRefreshIssue, setUserRefreshIssue] = useState(false);
   const [backupWarning, setBackupWarning] = useState("");
   const [busy, setBusy] = useState(false);
@@ -550,9 +554,8 @@ export default function App() {
     [],
   );
 
-  const disconnect = useCallback(() => {
+  const resetConnection = useCallback(() => {
     const current = apiRef.current;
-    if (current?.pending() && !window.confirm("还有任务或未保存的结果。退出会停止本页队列，已发出的请求可能仍扣额度，确定退出？")) return;
     current?.close();
     apiRef.current = null;
     settleConfirmation(false);
@@ -593,6 +596,23 @@ export default function App() {
     setNotice("");
     setBackupWarning("");
   }, []);
+  const disconnect = useCallback(async () => {
+    if (disconnectPending.current) return;
+    const current = apiRef.current;
+    if (current?.pending() && !window.confirm("还有任务或未保存的结果。退出会停止本页队列，已发出的请求可能仍扣额度，确定退出？")) return;
+    disconnectPending.current = true;
+    setDisconnecting(true);
+    try {
+      const revoked = await logoutWorkbenchSession(token);
+      resetConnection();
+      if (!revoked) setNotice("已退出本页 API Key；此服务未配置 Discord 登录，无法确认 Cookie 会话撤销。");
+    } catch (error) {
+      fail(error);
+    } finally {
+      disconnectPending.current = false;
+      setDisconnecting(false);
+    }
+  }, [resetConnection, token]);
   const connect = useCallback(async (access: string, rememberDevice = false) => {
     settleConfirmation(false);
     const seq = ++generation.current;
@@ -624,7 +644,7 @@ export default function App() {
       if (!access.trim()) throw new Error("请填写 Gate Key。");
       await verifyGateHealth();
       if (seq !== generation.current) return;
-      const client = new GateApi("", access.trim());
+      const client = new GateApi(".", access.trim());
       const [me, capabilities] = await Promise.all([
         client.request<User>("/me").catch((error: unknown) => {
           invalidCredential = error instanceof ApiError && (error.status === 401 || error.status === 403);
@@ -647,7 +667,7 @@ export default function App() {
       ]);
       if (seq !== generation.current) return;
       identity.current = owner;
-      canvasScope.current = canvasProjectScope(owner, access.trim());
+      canvasScope.current = canvasProjectScope(owner, access.trim(), me.id);
       const restoredDraft = restoreDraftForSession(migrateDirectorDraft(stored ?? newDraft()));
       setDraft(restoredDraft);
       if (stored?.operation === 'augment') setPage('director');
@@ -658,9 +678,10 @@ export default function App() {
       apiRef.current = client;
       setToken(access.trim());
       sessionStorage.setItem("nai-wb-token", access.trim());
-      if (rememberDevice) localStorage.setItem("nai-wb-remembered-token", access.trim());
+      if (rememberDevice && access.trim() !== DISCORD_SESSION_ACCESS_TOKEN) localStorage.setItem("nai-wb-remembered-token", access.trim());
       else if (localStorage.getItem("nai-wb-remembered-token") === access.trim())
         localStorage.removeItem("nai-wb-remembered-token");
+      setRememberDevice(rememberDevice && access.trim() !== DISCORD_SESSION_ACCESS_TOKEN);
       localStorage.removeItem("nai-wb-base");
       setLoaded(true);
       if (recoveredDraft) notify("草稿已损坏，已恢复默认设置；图库仍保留。");
@@ -686,11 +707,65 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', warn);
   }, []);
   useEffect(() => {
-    if (token) void connect(token, rememberDevice);
+    consumeLoginError(new URL(location.href), history);
+    let stopped = false;
+    const seq = generation.current;
+    if (!loginError) {
+      setConnecting(true);
+      void (async () => {
+        try {
+          const access = await restoreWorkbenchAccess(token);
+          if (stopped || seq !== generation.current) return;
+          if (access) await connect(access, rememberDevice && access !== DISCORD_SESSION_ACCESS_TOKEN);
+          else {
+            setToken("");
+            sessionStorage.removeItem("nai-wb-token");
+          }
+        } catch (error) {
+          if (!stopped && seq === generation.current) fail(error);
+        } finally {
+          if (!stopped && seq === generation.current) setConnecting(false);
+        }
+      })();
+    }
     return () => {
+      stopped = true;
       generation.current++;
     };
-  }, []); // Prefer this tab's Key, then the Key explicitly remembered on this device.
+  }, []); // Restore the current tab's Key first, otherwise the HttpOnly Discord session.
+  useEffect(() => {
+    if (!user || token !== DISCORD_SESSION_ACCESS_TOKEN) return;
+    let stopped = false, checking = false;
+    const seq = generation.current;
+    const check = async () => {
+      if (stopped || checking || document.visibilityState === 'hidden') return;
+      checking = true;
+      try {
+        const access = await restoreWorkbenchAccess(DISCORD_SESSION_ACCESS_TOKEN);
+        // Probe the current cookie identity without GateApi's 30-second /me cache.
+        const current = access ? await new GateApi('.', access).request<User>('/me') : null;
+        if (!stopped && seq === generation.current && (!current || current.id !== user.id)) {
+          resetConnection();
+          setFailure('Discord 登录已失效或身份已改变，请重新登录。本机图库和草稿仍保留。');
+        }
+      } catch (error) {
+        if (!stopped && seq === generation.current) {
+          if (error instanceof ApiError && [401, 403].includes(error.status)) resetConnection();
+          fail(error);
+        }
+      } finally { checking = false; }
+    };
+    void check();
+    const timer = setInterval(() => void check(), 30_000);
+    window.addEventListener('focus', check);
+    document.addEventListener('visibilitychange', check);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+      window.removeEventListener('focus', check);
+      document.removeEventListener('visibilitychange', check);
+    };
+  }, [user?.id, token, resetConnection]);
   useEffect(() => {
     if (!loaded || !identity.current) return;
     const owner = identity.current;
@@ -1779,6 +1854,13 @@ export default function App() {
               <Paintbrush size={30} strokeWidth={1.6} aria-hidden="true" />
               <h1 id="login-title">NAI 工作台</h1>
             </header>
+            <a className="discord-login" href="/workbench-auth/discord/start">
+              使用 Discord 登录
+            </a>
+            <p className="login-help discord-login-help">
+              仅限已有有效 Key 的账户。Key 已回收请先在 Discord 使用 /find；未注册请先使用 /register。
+            </p>
+            <div className="login-separator"><span>或使用 API Key</span></div>
             <Field label="Gate Key">
               <input
                 autoFocus
@@ -2202,6 +2284,8 @@ export default function App() {
                     <h2>当前连接</h2>
                   </div>
                   <dl>
+                    <dt>登录方式</dt>
+                    <dd>{token === DISCORD_SESSION_ACCESS_TOKEN ? 'Discord' : 'API Key'}</dd>
                     <dt>身份</dt>
                     <dd>{user.name}</dd>
                     <dt>服务</dt>
@@ -2214,12 +2298,14 @@ export default function App() {
                     {user.gate_quota && <><dt>今日免费图（V4.5 及以下）</dt><dd>{legacyFreeLabel(user.gate_quota)}</dd>
                       <dt>今日 V5 可用</dt><dd>{user.gate_quota.v5Unlimited ? '未设额度限制' : `${user.gate_quota.v5LeftToday.toLocaleString('zh-CN', { maximumFractionDigits: 2 })} 单位`}</dd></>}
                   </dl>
-                  <button onClick={disconnect}>
+                  <button onClick={() => void disconnect()} disabled={disconnecting}>
                     <LogOut size={15} />
-                    退出并切换口令
+                    {disconnecting ? '退出中…' : '退出登录'}
                   </button>
                   <p className="muted small">
-                  {rememberDevice ? "已记住此设备" : "仅当前标签页"}
+                    {token === DISCORD_SESSION_ACCESS_TOKEN
+                      ? 'Discord 会话由安全 Cookie 保管，退出时撤销；本机图库和草稿保留。'
+                      : `${rememberDevice ? 'API Key 已记住此设备' : 'API Key 仅保留在当前标签页'}；退出时同时撤销已有 Discord 会话。本机图库和草稿保留。`}
                   </p>
                 </section>
                 <section>

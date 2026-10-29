@@ -53,9 +53,9 @@ console.log('Prompt emphasis preserves source text and handles numeric, bracket,
 const originalFetch=globalThis.fetch;
 const calls=[];
 globalThis.fetch=async url=>{
-  assert.match(url,/^\/tokenizers\/(t5|qwen|clip)\.json$/);
+  assert.match(url,/^tokenizers\/(t5|qwen|clip)\.json$/);
   calls.push(url);
-  return new Response(fs.readFileSync(new URL('../client/public'+url,import.meta.url)));
+  return new Response(fs.readFileSync(new URL('../client/public/'+url,import.meta.url)));
 };
 const t5Cases=[
   ['',1], ['cat',2], ['mountain landscape, 12345',7],
@@ -84,7 +84,7 @@ try {
     }
     assert.equal(await exports.imageTokenizer(kind),tokenizer);
   }
-  assert.deepEqual(calls,['/tokenizers/t5.json','/tokenizers/qwen.json']);
+  assert.deepEqual(calls,['tokenizers/t5.json','tokenizers/qwen.json']);
   if(mismatches.length) console.error(JSON.stringify(mismatches,null,2));
   assert.equal(mismatches.length,0,'prompt meters must match captured official values');
   console.log('Image token counts match the captured T5 and Qwen prompt meters.');

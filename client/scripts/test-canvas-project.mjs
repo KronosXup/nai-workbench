@@ -8,6 +8,17 @@ assert.notEqual(a, canvasProjectScope(owner, "gate-key-B"));
 assert.notEqual(a, canvasProjectScope("http://local.example|user-2", "gate-key-A"));
 assert.ok(!a.includes("gate-key-A"), "The access key must not appear in the IndexedDB scope");
 
+// A Discord session must reuse the real key digest, never the public marker's digest.
+const keyOwner = `https://ashita.site|gate-${a.split('|key-sha256:')[1]}`;
+const meId = keyOwner.split('|')[1];
+assert.equal(canvasProjectScope(keyOwner, '__discord_session__', meId), canvasProjectScope(keyOwner, 'gate-key-A'),
+  'Switching from API Key to Discord must retain the exact canvas scope');
+for (const invalidId of ['', 'gate-user', `gate-${'A'.repeat(64)}`, `gate-${'a'.repeat(63)}`, `gate-${'a'.repeat(65)}`, `${meId}\n`]) {
+  assert.throws(() => canvasProjectScope(keyOwner, '__discord_session__', invalidId), /身份/);
+}
+assert.notEqual(canvasProjectScope(`https://ashita.site|gate-${'b'.repeat(64)}`, '__discord_session__', `gate-${'b'.repeat(64)}`),
+  canvasProjectScope(keyOwner, '__discord_session__', meId));
+
 const base = new Blob([new Uint8Array([1])], { type: "image/png" });
 const layer = new Blob([new Uint8Array([2])], { type: "image/png" });
 const valid = { version: 1, width: 64, height: 64, base,

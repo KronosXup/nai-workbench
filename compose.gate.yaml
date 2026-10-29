@@ -7,6 +7,7 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       WORKBENCH_GATE_URL: ${WORKBENCH_GATE_URL:?Set the internal Gate URL}
+      WORKBENCH_AUTH_BRIDGE_SECRET: ${WORKBENCH_AUTH_BRIDGE_SECRET:-}
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777

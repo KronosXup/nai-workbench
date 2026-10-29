@@ -40,7 +40,7 @@ function compiled(file,deps={}) {
   const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
   const exports={};new Function('require','exports',code)(name=>deps[name],exports);return exports;
 }
-const api=compiled('api.ts');
+const api=compiled('api.ts',{'./auth':compiled('auth.ts')});
 const {GateApi}=compiled('gateApi.ts',{'./api':api,'./types':{uuid:()=>`result-${++seq}`},
   './quote':compiled('quote.ts'),'./enhanceImage':{prepareEnhanceImage:task=>enhancePreparation(task)}});
 const {default:GateQueueStatus,gateJobLabel,queueWaitLabel,validGateQueueSnapshot}=compiled('GateQueueStatus.tsx',{'react':require('react'),'react/jsx-runtime':require('react/jsx-runtime')});

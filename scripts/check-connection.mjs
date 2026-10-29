@@ -9,14 +9,16 @@ function compile(file,deps={}) {
   const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
   const exports={};new Function('require','exports',code)(name=>deps[name]??require(name),exports);return exports;
 }
-const api=compile('api.ts');
+const auth=compile('auth.ts');
+const api=compile('api.ts',{'./auth':auth});
+const {DISCORD_SESSION_ACCESS_TOKEN}=auth;
 const {verifyGateHealth}=compile('connection.ts',{'./api':api});
 const tree=ts.createSourceFile('App.tsx',fs.readFileSync(new URL('../client/src/App.tsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
 let expression,disconnectExpression,restoreExpression;
 const initializers={};
 function visit(node) {
   if(ts.isVariableDeclaration(node)&&node.name.getText(tree)==='connect') expression=node.initializer.arguments[0].getText(tree);
-  if(ts.isVariableDeclaration(node)&&node.name.getText(tree)==='disconnect') disconnectExpression=node.initializer.arguments[0].getText(tree);
+  if(ts.isVariableDeclaration(node)&&node.name.getText(tree)==='resetConnection') disconnectExpression=node.initializer.arguments[0].getText(tree);
   if(ts.isVariableDeclaration(node)&&ts.isArrayBindingPattern(node.name)) {
     const name=node.name.elements[0]?.name?.getText(tree);
     if(['token','rememberDevice'].includes(name)) initializers[name]=node.initializer.arguments[0].getText(tree);
@@ -32,17 +34,18 @@ const restoreDraftForSession=new Function(helperCode+'\nreturn restoreDraftForSe
 const savedFetch=globalThis.fetch, requests=[];
 let mode='gate', badHealth=false, networkFailure=false, meStatus=200, capabilitiesStatus=200, meResponse;
 globalThis.fetch=async (url,options={})=>{
+  url=new URL(url,'https://workbench.example/workbench/').pathname;
   requests.push({url,headers:options.headers});
-  if(url==='/api/health') {
+  if(url==='/workbench/api/health') {
     assert.equal(options.headers?.Authorization,undefined,'health detection never receives credentials');
     assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');
     if(networkFailure) throw new TypeError('Controlled network failure');
     return Response.json({mode},{status:badHealth?503:200});
   }
-  if(url==='/api/me') return meResponse ? meResponse(options) : meStatus===200
+  if(url==='/workbench/api/me') return meResponse ? meResponse(options) : meStatus===200
     ? Response.json({id:'gate-fixture',name:'fixture',gate_quota:{imageModelScope:'all'}})
     : Response.json({detail:'Controlled credential rejection'},{status:meStatus});
-  if(url==='/api/capabilities') return capabilitiesStatus===200 ? Response.json({models:[]})
+  if(url==='/workbench/api/capabilities') return capabilitiesStatus===200 ? Response.json({models:[]})
     : Response.json({detail:'Controlled capabilities failure'},{status:capabilitiesStatus});
   throw new Error('Unexpected request target: '+url);
 };
@@ -61,7 +64,7 @@ function harness({brokenDraft=false,galleryError=false,sessionToken,rememberedTo
       character_reference_descriptions:['character description'],character_reference_strengths:[0.7],character_reference_fidelities:[0.9],
       customNumber:29},director:{model:'nai-diffusion-4-5-full',tool:'lineart',prompt:'remember director settings',emotion:'neutral',defry:2,
       source:{data:'director-image',width:80,height:60,name:'director.png'},resultId:'previous-result'}}, images=[{id:'existing-image'}];
-  const scope={verifyGateHealth,ApiError:api.ApiError,GateApi:class extends api.Api {pending(){return false;} close(){}},
+  const scope={verifyGateHealth,DISCORD_SESSION_ACCESS_TOKEN,ApiError:api.ApiError,GateApi:class extends api.Api {pending(){return false;} close(){}},
     generation:{current:0},syncBusy:{current:false},submitCache:{current:null},importSequence:{current:0},
     selectedIdRef:{current:undefined},chooseResult:id=>{scope.selectedIdRef.current=id;state.setSelectedId=id;scope.importSequence.current++;},
     identity:{current:''},canvasScope:{current:''},apiRef:{current:null},submitting:{current:false},draftRef:{current:draft},
@@ -78,7 +81,7 @@ function harness({brokenDraft=false,galleryError=false,sessionToken,rememberedTo
   const code=ts.transpileModule('const connect=('+expression+');const disconnect=('+disconnectExpression+');',{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText;
   const callbacks=new Function(...Object.keys(scope),code+'\nreturn {connect,disconnect};')(...Object.values(scope));
   const initial=()=>{
-    const values={sessionStorage:scope.sessionStorage,localStorage:scope.localStorage};
+    const values={sessionStorage:scope.sessionStorage,localStorage:scope.localStorage,DISCORD_SESSION_ACCESS_TOKEN};
     for(const name of ['token','rememberDevice']) {
       assert.ok(initializers[name],`${name} initializer must remain covered`);
       const initialCode=ts.transpileModule('const initial=('+initializers[name]+');',{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText;
@@ -93,9 +96,9 @@ try {
   const good=harness();await good.run(key);
   assert.deepEqual(good.failures,[]);assert.equal(good.state.setLoaded,true);
   assert.equal(good.stored.has('nai-wb-base'),false,'successful Gate login clears the obsolete external address');
-  assert.ok(requests.every(item=>String(item.url).startsWith('/api/')),'the Gate Key is sent only to same-origin API paths');
+  assert.ok(requests.every(item=>String(item.url).startsWith('/workbench/api/')),'the Gate Key is sent only to same-origin API paths');
   assert.equal(requests.filter(item=>item.headers?.Authorization).length,2);
-  assert.equal(good.state.setApi.base,'');
+  assert.equal(good.state.setApi.base,'.');
   assert.equal(good.session.get('nai-wb-token'),key);
   assert.equal(good.stored.has('nai-wb-remembered-token'),false,'remembering a device is opt-in');
   const owner='https://workbench.example|gate-fixture';
@@ -117,7 +120,7 @@ try {
 
   requests.length=0;badHealth=true;
   const offline=harness({sessionToken:key,rememberedToken:key});await offline.run(key,true);
-  assert.equal(offline.failures.length,1);assert.deepEqual(requests.map(item=>item.url),['/api/health']);
+  assert.equal(offline.failures.length,1);assert.deepEqual(requests.map(item=>item.url),['/workbench/api/health']);
   assert.ok(requests.every(item=>!item.headers?.Authorization));
   assert.equal(offline.session.get('nai-wb-token'),key);
   assert.equal(offline.stored.get('nai-wb-remembered-token'),key);
@@ -127,7 +130,7 @@ try {
   for(const unsupported of ['nai','mock','unexpected']) {
     mode=unsupported;requests.length=0;
     await assert.rejects(()=>verifyGateHealth(),/服务类型无效/);
-    assert.deepEqual(requests.map(item=>item.url),['/api/health']);
+    assert.deepEqual(requests.map(item=>item.url),['/workbench/api/health']);
     assert.ok(requests.every(item=>!item.headers?.Authorization));
   }
   console.log('PASS Legacy and unknown service modes are rejected before credentials are sent');

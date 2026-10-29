@@ -22,6 +22,7 @@ from .adapters import AdapterError, NaiAdapter
 from .config import Settings
 from .model_policy import request_model_for_operation
 from .task_validation import validate_task
+from .workbench_session import SESSION_MARKER, resolve_cookie_credential
 
 OPERATIONS = ['generate', 'img2img', 'inpaint', 'encode_vibe', 'upscale', 'augment']
 MODELS = [
@@ -109,8 +110,10 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
                                  'X-Frame-Options':'DENY'})
         return response
 
-    def credential(request):
+    async def credential(request):
         raw = request.headers.get('authorization', '')
+        if raw == 'Bearer ' + SESSION_MARKER:
+            return await resolve_cookie_credential(request, gate_url, transport=transport)
         if not raw.startswith('Bearer ') or not 1 <= len(raw[7:]) <= 512:
             raise HTTPException(401, '请填写 Gate 分配的 Key')
         return raw[7:]
@@ -356,7 +359,7 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
 
     @app.get('/api/queue-status')
     async def queue_status(request: Request):
-        await gate_username(credential(request))
+        await gate_username(await credential(request))
         now = _queue_status_now()
         if queue_status_cache['expires_at'] > now:
             if queue_status_cache['failed']:
@@ -391,7 +394,7 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
 
     @app.get('/api/me')
     async def me(request: Request):
-        token = credential(request)
+        token = await credential(request)
         username = await gate_username(token)
         subscription = await gate_get('/user/subscription', token)
         quota = dict(subscription['naiGate'], legacyFree=await legacy_free_quota(token))
@@ -406,7 +409,7 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
     @app.post('/api/suggest-tags')
     async def suggest_tags(request: Request):
         """Forward only the active tag fragment to Gate's existing autocomplete."""
-        token = credential(request)
+        token = await credential(request)
         await gate_username(token)
         if tag_slots.locked():
             raise HTTPException(429, '标签查询繁忙，请稍后再试', headers={'Retry-After': '1'})
@@ -455,14 +458,14 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
 
     @app.post('/api/quote')
     async def quote(request: Request):
-        token = credential(request)
+        token = await credential(request)
         await admit_quote(hashlib.sha256(token.encode()).hexdigest())
         query = parse_quote_metadata(await quote_task_bytes(request))
         return await gate_quote(token, query)
 
     @app.post('/api/execute')
     async def execute(request: Request):
-        token = credential(request)
+        token = await credential(request)
         owner = hashlib.sha256(token.encode()).hexdigest()
         def busy_error():
             reason = 'key_busy' if owner in active else 'service_busy'
