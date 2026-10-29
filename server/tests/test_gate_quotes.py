@@ -112,6 +112,31 @@ def test_max_quote_keeps_source_size_in_canonical_payload():
     asyncio.run(run())
 
 
+@pytest.mark.parametrize('model,mode,status', [
+    ('nai-diffusion-5-full', 'generate', 200),
+    ('nai-diffusion-5-curated', 'generate', 200),
+    ('nai-diffusion-5-full-medium', 'generate', 200),
+    ('nai-diffusion-4-full', 'generate', 200),
+    ('nai-diffusion-5-curated', 'inpaint', 422),
+])
+def test_quote_dimension_validation_uses_effective_model(model, mode, status):
+    sent = []
+    async def gate(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json=quote_result())
+    async def run():
+        app = create_app('http://gate.fixture', httpx.MockTransport(gate))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+            response = await client.post('/api/quote', headers={'Authorization': 'Bearer fixture'},
+                json=quote_metadata(model, mode=mode, width=848, height=1168))
+            assert response.status_code == status, response.text
+        if status == 200:
+            assert (sent[0]['parameters']['width'], sent[0]['parameters']['height']) == (848, 1168)
+        else:
+            assert not sent
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize('extra', [
     {'image': 'eA=='}, {'mask': 'eA=='}, {'prompt': 'text'}, {'sampler': 'k_euler'},
     {'scale': 5}, {'width': {}}, {'sm': 1}, {'strength': float('nan')}, {'n_samples': 2},

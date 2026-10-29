@@ -35,10 +35,18 @@ const {generationParameters, defaultNoiseSchedule, modelGenerationDefaults, samp
   assert.match(configurationIssueFor(draft,models).message,/64.*倍数/);
   draft.parameters.width=832;draft.parameters.height=1152;
   assert.equal(configurationIssueFor(draft,models),undefined);
+  draft.parameters.width=848;draft.parameters.height=1168;
+  for(const model of ['nai-diffusion-5-full','nai-diffusion-5-curated','nai-diffusion-5-full-medium','nai-diffusion-4-full','nai-diffusion-3']) {
+    draft.model=model;
+    assert.equal(configurationIssueFor(draft,models),undefined,`${model} keeps its existing Gate dimension handling`);
+  }
+  draft.operation='inpaint';draft.model='nai-diffusion-5-curated';
+  draft.parameters.image='fixture';draft.parameters.mask='fixture';
+  assert.match(configurationIssueFor(draft,models).message,/64.*倍数/);
   draft.operation='img2img';draft.model='nai-diffusion-5-full';draft.parameters.image='fixture';
   draft.parameters.width=1440;draft.parameters.height=2144;draft.parameters.upscaled_enhance=true;
   assert.equal(configurationIssueFor(draft,models),undefined,'Max Enhance retains its separate billing-size rule');
-  console.log('PASS ordinary generation enforces the official 64-pixel grid without blocking nonpreset sizes or Max Enhance');
+  console.log('PASS V4.5 uses the official 64-pixel grid; other models keep Gate handling and Max Enhance remains valid');
 }
 {
   const {newDraft} = actualModule('types.ts');

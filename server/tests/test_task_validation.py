@@ -60,6 +60,25 @@ def test_nonpreset_size_on_64_pixel_grid_remains_valid():
     assert validate_task(payload, Settings())["parameters"]["height"] == 1152
 
 
+@pytest.mark.parametrize("model", [
+    "nai-diffusion-5-full", "nai-diffusion-5-curated", "nai-diffusion-5-full-medium",
+    "nai-diffusion-4-full", "nai-diffusion-3",
+])
+def test_other_model_dimensions_preserve_gate_policy_input(model):
+    payload = task(model=model)
+    payload["parameters"].update(width=848, height=1168)
+    result = validate_task(payload, Settings())
+    assert (result["parameters"]["width"], result["parameters"]["height"]) == (848, 1168)
+    payload["parameters"]["width"] = 849
+    reject(payload)
+
+
+def test_v5_curated_inpaint_uses_v45_size_validation():
+    payload = task(model="nai-diffusion-5-curated", operation="inpaint")
+    payload["parameters"].update(width=848, height=1168, image=IMAGE, mask=IMAGE)
+    reject(payload)
+
+
 @pytest.mark.parametrize("field,value", [
     ("character_reference_descriptions", "character"),
     ("character_reference_strengths", 0.5),

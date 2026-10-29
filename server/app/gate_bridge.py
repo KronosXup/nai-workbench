@@ -447,9 +447,10 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
         if operation == 'generate-image':
             if params.get('n_samples', 1) != 1:
                 raise HTTPException(422, '每个工作台任务只能生成一张图片')
-            if not params.get('upscaled_enhance') and (params.get('width', 832) % 64 or params.get('height', 1216) % 64):
-                raise HTTPException(422, '普通生成分辨率的宽高必须是 64 的整数倍')
             query['model'] = request_model_for_operation(model, params.get('mode', 'generate'))
+            if (query['model'].startswith('nai-diffusion-4-5-') and not params.get('upscaled_enhance')
+                    and (params.get('width', 832) % 64 or params.get('height', 1216) % 64)):
+                raise HTTPException(422, '普通生成分辨率的宽高必须是 64 的整数倍')
         elif operation == 'upscale':
             query['model'] = 'nai-diffusion-5-curated'
         return query
