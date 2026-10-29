@@ -5,10 +5,20 @@ import uuid
 import httpx
 import pytest
 
-from app.adapters import Artifact
+from app.adapters import Artifact, AdapterError, QUEUE_REQUEST_HEADER, QUEUE_TICKET_HEADER
 from app.gate_bridge import create_app
 import app.gate_bridge as gate_bridge
-from test_gate_bridge import quote_metadata, quote_result
+from test_gate_bridge import inpaint_images, quote_metadata, quote_result
+
+
+def ticket_snapshot(*, operation='generate-image', state='ready'):
+    return dict(ticket_id=str(uuid.uuid4()), request_id=str(uuid.uuid4()), operation=operation,
+                state=state, position=1 if state == 'queued' else 0, expires_in=120, poll_after=3)
+
+
+def ticket_headers(ticket, token='valid'):
+    return {'Authorization': 'Bearer ' + token, QUEUE_TICKET_HEADER: ticket['ticket_id'],
+            QUEUE_REQUEST_HEADER: ticket['request_id']}
 
 
 def quote_task():
@@ -476,3 +486,250 @@ def test_quote_frequency_limits_do_not_let_other_keys_block_valid_quotes(monkeyp
 
 def test_quote_uses_small_metadata_input_ceiling():
     assert gate_bridge.QUOTE_MAX_BODY_BYTES == 4 * 1024
+
+
+@pytest.mark.parametrize('requires_anlas', [None, False, True])
+def test_image_queue_proxy_preserves_key_ownership_and_ticket_lifecycle(requires_anlas):
+    tickets, calls = {}, []
+    extra = {} if requires_anlas is None else {'requires_anlas': requires_anlas}
+    async def gate(request):
+        token, path = request.headers['authorization'], request.url.path
+        calls.append((request.method, path, token))
+        assert path.startswith('/v1/image/queue')
+        if path == '/v1/image/queue':
+            query = json.loads(request.content)
+            assert set(query) == {'request_id', 'operation'} | set(extra)
+            assert query.get('requires_anlas') == requires_anlas
+            ticket = {**ticket_snapshot(operation=query['operation'], state='queued'), 'request_id': query['request_id']}
+            tickets[ticket['ticket_id']] = (token, ticket)
+            return httpx.Response(201, json=ticket)
+        ticket_id = path.split('/')[4]
+        if ticket_id not in tickets or tickets[ticket_id][0] != token:
+            return httpx.Response(404, json={'error': {'code': 'queue_ticket_not_found', 'message': 'hidden'}})
+        ticket = tickets[ticket_id][1]
+        if request.method == 'DELETE':
+            ticket.update(state='cancelled', position=0, expires_in=0)
+        return httpx.Response(200, json=ticket)
+    async def run():
+        app = create_app('http://gate.fixture', httpx.MockTransport(gate))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+            a, b = {'Authorization': 'Bearer A'}, {'Authorization': 'Bearer B'}
+            created = await client.post('/api/image-queue', headers=a,
+                json={'request_id': str(uuid.uuid4()), 'operation': 'generate-image', **extra})
+            assert created.status_code == 201
+            ticket = created.json()
+            path = '/api/image-queue/' + ticket['ticket_id']
+            assert (await client.get(path, headers=a)).json() == ticket
+            assert (await client.post(path + '/heartbeat', headers=a)).json() == ticket
+            for method in ('GET', 'DELETE'):
+                denied = await client.request(method, path, headers=b)
+                assert denied.status_code == 404 and denied.json()['code'] == 'queue_ticket_not_found'
+                assert isinstance(denied.json()['detail'], str) and 'hidden' not in denied.json()['detail']
+            cancelled = await client.delete(path, headers=a)
+            assert cancelled.json()['state'] == 'cancelled'
+            assert all('/user/' not in path for _, path, _ in calls)
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('state,code,status', [('queued', 'queue_ticket_not_ready', 409),
+    ('active', 'queue_ticket_used', 409), ('finished', 'queue_ticket_used', 409),
+    ('expired', 'queue_ticket_expired', 410), ('cancelled', 'queue_ticket_cancelled', 409)])
+def test_ticketed_execute_checks_state_before_reading_upload(state, code, status):
+    ticket = ticket_snapshot(state=state)
+    async def gate(request):
+        assert request.method == 'GET' and request.url.path.endswith(ticket['ticket_id'])
+        return httpx.Response(200, json=ticket)
+    async def run():
+        body_read = []
+        async def body():
+            body_read.append(True)
+            yield b'{}'
+        app = create_app('http://gate.fixture', httpx.MockTransport(gate))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+            response = await client.post('/api/execute', headers=ticket_headers(ticket), content=body())
+            assert response.status_code == status and response.json()['code'] == code
+            assert body_read == []
+            assert response.json()['uncertain'] is (state in {'active', 'finished'})
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('headers', [{QUEUE_TICKET_HEADER: str(uuid.uuid4())},
+    {QUEUE_REQUEST_HEADER: str(uuid.uuid4())}, {QUEUE_TICKET_HEADER: 'invalid', QUEUE_REQUEST_HEADER: 'invalid'}])
+def test_ticketed_execute_rejects_incomplete_headers_before_reading(headers):
+    async def gate(request):
+        raise AssertionError('invalid ticket headers reached Gate')
+    async def run():
+        async def body():
+            raise AssertionError('invalid ticket headers read an upload')
+            yield b''
+        app = create_app('http://gate.fixture', httpx.MockTransport(gate))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+            response = await client.post('/api/execute', headers={'Authorization': 'Bearer valid', **headers}, content=body())
+            assert response.status_code == 400 and response.json()['code'] == 'queue_invalid_request'
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('operation,queue_operation', [('generate', 'generate-image'), ('img2img', 'generate-image'),
+    ('inpaint', 'generate-image'), ('upscale', 'upscale'), ('augment', 'augment-image'), ('encode_vibe', 'encode-vibe')])
+def test_ticketed_execute_passes_internal_ticket_for_every_image_operation(operation, queue_operation):
+    ticket = ticket_snapshot(operation=queue_operation)
+    sent, calls = [], []
+    class Adapter:
+        def __init__(self, settings, *, gate_mode):
+            assert gate_mode
+        async def execute(self, task, on_preview):
+            sent.append(task)
+            task['_gate_queue']['submitted'] = True
+            return [Artifact(b'fixture')]
+        async def close(self):
+            pass
+    async def gate(request):
+        calls.append(request.method)
+        assert request.method == 'GET'
+        return httpx.Response(200, json=ticket)
+    async def run():
+        item = quote_task()
+        image, mask = inpaint_images((64, 64))
+        item['operation'] = operation
+        item['parameters'].update(width=64, height=64)
+        if operation != 'generate':
+            item['parameters']['image'] = image
+        if operation == 'inpaint':
+            item['parameters']['mask'] = mask
+        if operation == 'augment':
+            item['parameters']['req_type'] = 'lineart'
+        app = create_app('http://gate.fixture', httpx.MockTransport(gate), Adapter)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+            response = await client.post('/api/execute', headers=ticket_headers(ticket), json=item)
+            assert response.status_code == 200 and response.json()['type'] == 'final'
+            assert sent[0]['request_id'] != ticket['request_id']
+            assert sent[0]['_gate_queue']['ticket_id'] == ticket['ticket_id']
+            assert '_gate_queue' not in sent[0]['parameters']
+            assert calls == ['GET']
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('failure', ['body', 'operation', 'prepare', 'cancel-upload'])
+def test_ticketed_execute_cancels_ready_ticket_after_local_failure(failure):
+    ticket = ticket_snapshot(operation='upscale' if failure == 'operation' else 'generate-image')
+    calls = []
+    class Adapter:
+        def __init__(self, settings, *, gate_mode):
+            pass
+        async def execute(self, task, on_preview):
+            raise AdapterError('invalid_image', '本地图片无效')
+        async def close(self):
+            pass
+    async def gate(request):
+        calls.append(request.method)
+        return httpx.Response(200, json={**ticket, 'state': 'cancelled' if request.method == 'DELETE' else 'ready'})
+    async def run():
+        app = create_app('http://gate.fixture', httpx.MockTransport(gate), Adapter)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+            if failure == 'cancel-upload':
+                entered = asyncio.Event()
+                async def body():
+                    entered.set()
+                    await asyncio.Event().wait()
+                    yield b'{}'
+                pending = asyncio.create_task(client.post('/api/execute', headers=ticket_headers(ticket), content=body()))
+                await asyncio.wait_for(entered.wait(), 2)
+                pending.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await pending
+            else:
+                response = await client.post('/api/execute', headers=ticket_headers(ticket), json={} if failure == 'body' else quote_task())
+                assert response.status_code == {'body': 422, 'operation': 409, 'prepare': 200}[failure]
+            assert calls == ['GET', 'DELETE']
+    asyncio.run(run())
+
+
+def test_ticketed_upload_waits_for_local_preparation_and_cleans_up_cancellation(monkeypatch):
+    monkeypatch.setattr(gate_bridge, 'EXECUTE_PREP_MAX_CONCURRENCY', 1)
+    tickets = [ticket_snapshot() for _ in range(3)]
+    deleted = []
+    second_validated = asyncio.Event()
+    class Adapter:
+        def __init__(self, settings, *, gate_mode):
+            pass
+        async def execute(self, task, on_preview):
+            task['_gate_queue']['submitted'] = True
+            return [Artifact(b'fixture')]
+        async def close(self):
+            pass
+    async def gate(request):
+        ticket = next(ticket for ticket in tickets if request.url.path.endswith(ticket['ticket_id']))
+        if request.method == 'DELETE':
+            deleted.append(ticket['ticket_id'])
+        elif ticket is tickets[1]:
+            second_validated.set()
+        return httpx.Response(200, json=ticket)
+    async def run():
+        app = create_app('http://gate.fixture', httpx.MockTransport(gate), Adapter)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+            first_read, release, second_read = asyncio.Event(), asyncio.Event(), asyncio.Event()
+            async def first_body():
+                first_read.set()
+                await release.wait()
+                yield json.dumps(quote_task()).encode()
+            async def second_body():
+                second_read.set()
+                yield json.dumps(quote_task()).encode()
+            first = asyncio.create_task(client.post('/api/execute', headers=ticket_headers(tickets[0]), content=first_body()))
+            await asyncio.wait_for(first_read.wait(), 2)
+            second = asyncio.create_task(client.post('/api/execute', headers=ticket_headers(tickets[1]), content=second_body()))
+            await asyncio.wait_for(second_validated.wait(), 2)
+            await asyncio.sleep(0.01)
+            assert not second.done() and not second_read.is_set()
+            second.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await second
+            assert deleted == [tickets[1]['ticket_id']]
+            release.set()
+            assert (await first).status_code == 200
+            assert (await client.post('/api/execute', headers=ticket_headers(tickets[2]), json=quote_task())).status_code == 200
+    asyncio.run(run())
+
+
+def test_overlapping_ticket_failure_does_not_clear_an_active_key():
+    first_ticket, second_ticket = ticket_snapshot(), ticket_snapshot()
+    started, release = asyncio.Event(), asyncio.Event()
+    class Adapter:
+        def __init__(self, settings, *, gate_mode):
+            pass
+        async def execute(self, task, on_preview):
+            queue = task.get('_gate_queue')
+            if queue and queue['ticket_id'] == second_ticket['ticket_id']:
+                raise AdapterError('invalid_image', 'invalid local image')
+            if queue:
+                queue['submitted'] = True
+                started.set()
+                await release.wait()
+            return [Artifact(b'fixture')]
+        async def close(self):
+            pass
+    async def gate(request):
+        if request.url.path == '/user/information':
+            return httpx.Response(200, json={'username': 'fixture'})
+        ticket = first_ticket if request.url.path.endswith(first_ticket['ticket_id']) else second_ticket
+        return httpx.Response(200, json=ticket)
+    async def run():
+        app = create_app('http://gate.fixture', httpx.MockTransport(gate), Adapter)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+            first = asyncio.create_task(client.post('/api/execute', headers=ticket_headers(first_ticket), json=quote_task()))
+            await asyncio.wait_for(started.wait(), 2)
+            second = await client.post('/api/execute', headers=ticket_headers(second_ticket), json=quote_task())
+            assert second.status_code == 200 and second.json()['type'] == 'error'
+            headers = {'Authorization': 'Bearer valid'}
+            blocked = await client.post('/api/execute', headers=headers, json=quote_task())
+            assert blocked.status_code == 429 and blocked.json()['reason'] == 'key_busy'
+            release.set()
+            assert (await first).json()['type'] == 'final'
+            assert (await client.post('/api/execute', headers=headers, json=quote_task())).status_code == 200
+    asyncio.run(run())
+
+
+def test_queue_status_includes_image_queue_counts_without_replacing_global():
+    raw = {'global': {'active': 2, 'waiting': 1, 'concurrency': 1}, 'image_cooldown_remaining': 0,
+           'image_queue': {'queued': 3, 'ready': 1, 'active': 1, 'total': 5, 'capacity': 2}}
+    assert gate_bridge._queue_status_payload(raw) == raw

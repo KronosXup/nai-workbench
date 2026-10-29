@@ -34,6 +34,23 @@ MAX_RESPONSE = 96 * 1024 * 1024
 MAX_IMAGE_PIXELS = 20_000_000
 MAX_ARTIFACTS = 32
 STREAM_FINAL_DRAIN_SECONDS = 8
+QUEUE_TICKET_HEADER = "X-NAI-Gate-Queue-Ticket"
+QUEUE_REQUEST_HEADER = "X-NAI-Gate-Queue-Request"
+QUEUE_ERRORS = {
+    "queue_invalid_request": (400, "排队请求格式无效", False, False),
+    "queue_request_conflict": (409, "这个排队请求的操作或付费标记已改变", False, False),
+    "queue_full": (429, "本 Key 已有 50 个未完成排队任务，请先完成或取消", False, False),
+    "queue_ticket_not_found": (404, "排队票据不存在或不属于当前 Key", False, False),
+    "queue_ticket_mismatch": (409, "排队票据与本次操作不匹配", False, False),
+    "queue_ticket_not_ready": (409, "排队尚未到号，请继续等待", True, False),
+    "queue_ticket_expired": (410, "排队票据已过期，请重新排队", False, False),
+    "queue_ticket_cancelled": (409, "这次排队已取消", False, False),
+    "queue_ticket_used": (409, "该票据已用于执行，请核对已有结果，不要重复提交", False, True),
+    "queue_ticket_active": (409, "任务已开始执行，无法撤回排队票据", False, True),
+    "queue_timeout": (429, "排队等待超时，请稍后再试", True, False),
+    "queue_upload_timeout": (408, "图片上传超时，本次未开始生成；请重新排队", False, False),
+    "queue_unavailable": (503, "图片队列暂时不可用，请稍后再试", True, False),
+}
 DIRECTOR_TOOLS = {"bg-removal", "lineart", "sketch", "colorize", "emotion", "declutter", "declutter-keep-bubbles"}
 REFERENCE_CANVASES = ((1024, 1536), (1536, 1024), (1472, 1472))
 _REFERENCE_CACHE_SECRET = secrets.token_bytes(32)
@@ -55,6 +72,18 @@ class AdapterError(Exception):
         self.uncertain = uncertain
         self.retry_after = retry_after
         self.retryable = retryable and not uncertain
+
+
+def queue_rejection(payload: Any) -> AdapterError | None:
+    if not isinstance(payload, dict):
+        return None
+    error = payload.get("error")
+    code = error.get("code") if isinstance(error, dict) else payload.get("code")
+    if not isinstance(code, str) or code not in QUEUE_ERRORS:
+        return None
+    _, message, retryable, uncertain = QUEUE_ERRORS[code]
+    return AdapterError(code, message, uncertain=uncertain, retry_after=3 if retryable else None,
+                        retryable=retryable)
 
 
 def retry_delay(value: str | None, default: float = 60) -> float:
@@ -396,6 +425,9 @@ class NaiAdapter:
         path, body, use_stream = build_request(job)
         if self.gate_mode and job.get("cost_limit") is not None:
             body["cost_limit"] = job["cost_limit"]
+        queue = job.get("_gate_queue") if self.gate_mode else None
+        queue_headers = ({QUEUE_TICKET_HEADER: queue["ticket_id"], QUEUE_REQUEST_HEADER: queue["request_id"]}
+                         if queue else {})
         inpaint_source = decode_base64(body["parameters"]["image"]) if job["operation"] == "inpaint" else None
         inpaint_mask = decode_base64(body["parameters"]["mask"]) if inpaint_source else None
 
@@ -424,28 +456,33 @@ class NaiAdapter:
                 await on_preview(value)
 
         try:
-            async with self.client.stream("POST", path, json=body) as response:
+            if queue:
+                queue["submitted"] = True
+            async with self.client.stream("POST", path, json=body, headers=queue_headers) as response:
                 if response.status_code not in {200, 201}:
                     # Never forward raw upstream bodies: they may echo private input.
                     status = response.status_code
                     retry_after = None
                     if status == 429:
                         retry_after = retry_delay(response.headers.get("retry-after"))
-                        if self.gate_mode:
-                            # Bound the diagnostic body before parsing. Upstream text is
-                            # untrusted and is never used as a user-visible message.
-                            raw = bytearray()
-                            async for chunk in response.aiter_bytes():
-                                raw.extend(chunk[:8193 - len(raw)])
-                                if len(raw) > 8192:
-                                    break
-                            if len(raw) <= 8192:
-                                try:
-                                    rejection = gate_rejection(json.loads(raw), response.headers.get("retry-after"))
-                                except (ValueError, RecursionError):
-                                    rejection = None
-                                if rejection:
-                                    raise rejection
+                    if self.gate_mode:
+                        # Bound the diagnostic body before parsing. Upstream text is
+                        # untrusted and is never used as a user-visible message.
+                        raw = bytearray()
+                        async for chunk in response.aiter_bytes():
+                            raw.extend(chunk[:8193 - len(raw)])
+                            if len(raw) > 8192:
+                                break
+                        if len(raw) <= 8192:
+                            try:
+                                payload = json.loads(raw)
+                                rejection = queue_rejection(payload)
+                                if rejection is None and status == 429:
+                                    rejection = gate_rejection(payload, response.headers.get("retry-after"))
+                            except (ValueError, RecursionError):
+                                rejection = None
+                            if rejection:
+                                raise rejection
                     if self.gate_mode and status == 409:
                         raise AdapterError("gate_price_changed", "费用已变化，本次未生成、未扣费；请重新报价并确认后提交")
                     message = {401: "NAI 凭据无效", 402: "NAI 额度不足", 403: "NAI 拒绝访问", 429: "NAI 正在限流，请稍后再试"}.get(status, f"NAI 返回错误状态 {status}")
@@ -491,8 +528,12 @@ class NaiAdapter:
         except AdapterError:
             raise
         except httpx.ConnectError as exc:
+            if queue:
+                queue['submitted'] = False
             raise AdapterError("connection_failed", "未能连接 NAI，本次未自动重试") from exc
         except httpx.ConnectTimeout as exc:
+            if queue:
+                queue['submitted'] = False
             raise AdapterError("connection_timeout", "连接 NAI 超时，本次未自动重试") from exc
         except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as exc:
             raise AdapterError("upstream_interrupted", "NAI 请求中断，结果待确认；为避免重复消耗未自动重试", uncertain=True) from exc

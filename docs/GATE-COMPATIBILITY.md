@@ -4,6 +4,7 @@
 首版所需的路由和响应字段已按上游提交 [`b81959c`](https://github.com/fangchen2003/service-tools/tree/b81959c0cf5533ca5fc3071dff2e8926e9b12629) 核对。
 当前代码要求 Gate 提供下面的计价参数报价接口；工作台与 Gate 需一起升级，升级后刷新已有页面。旧的完整图片 `payload` 报价格式不再接受，工作台不保留另一套本地费率公式。
 `v0.1.0-beta.10` 的配套 Gate 源码为 [`2f81167`](https://github.com/KronosXup/service-tools/commit/2f81167e52c946cce4740b9d890fc3b44c00dba4)；升级顺序见[维护文档](DEPLOYMENT-MAINTENANCE.md#计价参数报价版本的配套升级)。
+`v0.1.0-beta.11` 还需要统一生图队列，配套 Gate 源码为 [`bd65164`](https://github.com/KronosXup/service-tools/commit/bd651647cc8276b3223f39ff58e68227f103e479)；先升级 Gate，再升级工作台，详见[配套升级步骤](DEPLOYMENT-MAINTENANCE.md#统一生图队列版本的配套升级)。
 
 | 工作台用途 | Gate 接口 |
 |---|---|
@@ -12,6 +13,7 @@
 | 显示积分与 V5 额度 | `GET /user/subscription` |
 | 显示 V4.5 及以下每日免费图剩余 | `GET /v1/me` |
 | 显示服务器排队状态 | `GET /queue-status` |
+| 生图取号、位置、保活与取消 | `POST /v1/image/queue`、`GET/DELETE /v1/image/queue/{ticket_id}`、`POST /v1/image/queue/{ticket_id}/heartbeat` |
 | 生图与流式预览 | `POST /ai/generate-image`、`POST /ai/generate-image-stream` |
 | 编码 Vibe | `POST /ai/encode-vibe` |
 | 放大、导演工具 | `POST /ai/upscale`、`POST /ai/augment-image` |
@@ -22,6 +24,17 @@
 每日免费图剩余使用 `/v1/me` 的 `today.daily_images` 和 `today.legacy_free_images_today`，不使用包含付费图和 V5 的总图片数。上限为 0 表示不限；旧版 Gate 缺少接口或字段时显示“暂不可用”，其他功能仍可使用。此查询只读取 Gate 本地记录。
 
 ## 费用与功能
+
+### 轻量统一生图队列
+
+`v0.1.0-beta.11` 需要配套 Gate 的 `/v1/image/queue` 接口；beta.10 及其报价配套提交不包含该队列功能。工作台通过 `/api/image-queue` 创建票据、读取状态、发送心跳和取消等待，轮到后才上传完整生成请求。
+
+票据只含请求 UUID、操作、可选付费标记及状态，不保存图片、提示词或结果。工作台按确认的 `cost_limit.anlas` 发送 `requires_anlas=true`，编码始终发送该标记，Gate 据此匹配允许 Anlas 的上游容量。每个 Key 最多有 50 个未完成票据，与本页的 50 个待办上限一致；本页只为当前待执行项取号。普通生成、流式生成、重绘、Enhance、放大、导演工具和 Vibe 编码共用 Gate 准入顺序；批量仍由本页在上一张保存确认后再提交下一张。Vibe 先完成编码，再为主生图取号。
+
+页面显示包含前方未完成任务的全站位置；位置会随完成、取消和 Key 并发条件变化。暂停会让出当前票据，继续后重新排队。`queued/ready` 阶段可取消；开始上传、提交后不承诺撤回已执行的操作，结果不确定时不会自动重发。
+取消未确认时，工作台显示错误并停止自动提交；Vibe 编码也不会在恢复时自动另取新号。未领取的旧票据由原租期回收。
+
+页面需保持打开。等待票据约每 3 秒保活，断开后最多约 120 秒过期；ready 的领取窗口最多 120 秒，且不超过现有心跳租期，不能靠保活无限占位。服务重启不会恢复这些内存票据，失效任务须重新提交。原图片接口的客户端仍可调用，但也经过统一准入；真实 Key/上游并发、请求间隔、计费和费用上限继续由 Gate 执行检查。
 
 工作台的 `/api/quote` 只向 Gate 发送模型、操作和计价参数，由 Gate 统一返回费用、参数调整及 Medium 路由。生成按钮、工具栏、导演工具和费用确认均使用该结果；接口不可用或返回无效价格时显示错误，不回退到本地估算。浏览器按原图、模型及信息提取值去重待编码 Vibe，只传 `pending_vibe_encoding_count`；参考图只传数量。报价不上传图片、蒙版、编码数据或提示词，也不解码或缩放图片。
 

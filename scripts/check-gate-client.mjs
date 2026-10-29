@@ -3,7 +3,10 @@ import fs from 'node:fs';
 import {createRequire} from 'node:module';
 const require=createRequire(new URL('../client/package.json',import.meta.url));
 const ts=require('typescript');
-let seq=0, names=[], execute, executeSignals=[], executeTasks=[], quoteRequests=[];
+let seq=0, names=[], execute, executeSignals=[], executeTasks=[], executeHeaders=[], quoteRequests=[];
+let queueResponder;
+const queueTickets=new Map();
+const queueCreates=[],queueCancels=[];
 let enhancePreparation=async()=> 'prepared-image';
 const saved={fetch:globalThis.fetch,setTimeout:globalThis.setTimeout,clearTimeout:globalThis.clearTimeout,now:Date.now};
 let now=1_000_000, timerSequence=0;
@@ -26,12 +29,25 @@ const events=(...items)=>new Response(items.map(item=>JSON.stringify(item)+'\n')
 const final=()=>({type:'final',artifacts:[{data:'dGVzdA==',media_type:'image/png',filename:'test.png',metadata:{},sha256:'hash'}]});
 const limited=(code='gate_rpm',retry_after=2)=>({type:'error',code,retryable:true,retry_after,uncertain:false,message:'请等待后继续'});
 globalThis.fetch=async(url,options)=>{
+  if(url.includes('/api/image-queue')) {
+    if(queueResponder)return queueResponder(url,options);
+    if(url.endsWith('/image-queue')) {
+      const body=JSON.parse(options.body);
+      const ticket={ticket_id:'ticket-'+body.request_id,...body,state:'ready',position:0,expires_in:120,poll_after:3};
+      queueTickets.set(ticket.ticket_id,ticket);queueCreates.push(body);
+      return Response.json(ticket);
+    }
+    const id=decodeURIComponent(url.split('/image-queue/')[1].split('/')[0]);
+    const ticket=queueTickets.get(id);
+    if(options.method==='DELETE'){ticket.state='cancelled';queueCancels.push(id);}
+    return Response.json(ticket);
+  }
   if(url.endsWith('/quote')) {
     quoteRequests.push(JSON.parse(options.body));
     return Response.json({source:'gate',units:0,unit_label:'积分',cost_limit:{anlas:0,v5:0},encoding_cost_limit:{anlas:2,v5:0}});
   }
   if(url.endsWith('/execute')) {
-    const task=JSON.parse(options.body);names.push(task.label);lastExecuteSignal=options.signal;executeSignals.push(options.signal);executeTasks.push(structuredClone(task));return execute(task);
+    const task=JSON.parse(options.body);names.push(task.label);lastExecuteSignal=options.signal;executeSignals.push(options.signal);executeTasks.push(structuredClone(task));executeHeaders.push({...options.headers});return execute(task);
   }
   return Response.json({id:'test'});
 };
@@ -41,8 +57,10 @@ function compiled(file,deps={}) {
   const exports={};new Function('require','exports',code)(name=>deps[name],exports);return exports;
 }
 const api=compiled('api.ts');
+const queueTypes={uuid:()=>`queue-${++seq}`};
+const imageQueue=compiled('imageQueue.ts',{'./api':api,'./types':queueTypes});
 const {GateApi}=compiled('gateApi.ts',{'./api':api,'./types':{uuid:()=>`result-${++seq}`},
-  './quote':compiled('quote.ts'),'./enhanceImage':{prepareEnhanceImage:task=>enhancePreparation(task)}});
+  './quote':compiled('quote.ts'),'./imageQueue':imageQueue,'./enhanceImage':{prepareEnhanceImage:task=>enhancePreparation(task)}});
 const {default:GateQueueStatus,gateJobLabel,queueWaitLabel,validGateQueueSnapshot}=compiled('GateQueueStatus.tsx',{'react':require('react'),'react/jsx-runtime':require('react/jsx-runtime')});
 const {default:WorkspaceHeader}=compiled('WorkspaceHeader.tsx',{'react':require('react'),'react-dom':require('react-dom'),'react/jsx-runtime':require('react/jsx-runtime'),'lucide-react':require('lucide-react')});
 const {renderToStaticMarkup}=require('react-dom/server');
@@ -56,7 +74,8 @@ async function ack(client,index=0) {
 }
 function reset(handler=()=>events(final())) {
   assert.equal(timers.size,0,'previous client must not leave retry timers alive');
-  names=[];executeSignals=[];executeTasks=[];execute=handler;
+  names=[];executeSignals=[];executeTasks=[];executeHeaders=[];execute=handler;
+  queueResponder=undefined;queueTickets.clear();queueCreates.length=0;queueCancels.length=0;
 }
 try {
   {
@@ -95,9 +114,9 @@ try {
     console.log('PASS quotation requests carry only pricing metadata for every operation and deduplicate pending Vibes');
   }
   {
-    const api={},counts={active:2,waiting:1,concurrency:1};
+    const api={},counts={active:2,waiting:1,concurrency:5};
     const display=(remaining,serverOffset=0,age=0)=>renderToStaticMarkup(require('react').createElement(GateQueueStatus,{monitor:{
-      api,snapshot:{global:counts,image_cooldown_remaining:remaining,sampled_at:now/1000+serverOffset},
+      api,snapshot:{global:counts,image_queue:{queued:counts.waiting,ready:3,active:counts.active,total:counts.active+counts.waiting+3,capacity:counts.concurrency},image_cooldown_remaining:remaining,sampled_at:now/1000+serverOffset},
       receivedAt:performance.now()-age*1000,
     }}));
     for(const offset of [-3600,0,1,3600]) {
@@ -108,12 +127,212 @@ try {
     assert.match(display(3,1,2.1),/冷却约 1 秒/,'keep the final real second visible');
     assert.doesNotMatch(display(3,1,3.1),/冷却/);
     assert.match(display(0,0,15.1),/排队状态暂不可用/,'unchanged snapshots age out on the local clock');
-    assert.match(display(0),/全站未完成任务：3 · 图片并发上限：1/);
+    assert.match(display(0),/全站：处理中 2 · 排队 1 · 待提交 3 · 并发上限 5/);
     counts.concurrency=0;
-    assert.equal(validGateQueueSnapshot({global:counts,image_cooldown_remaining:0,sampled_at:now/1000}),true);
-    assert.match(display(0),/全站未完成任务：3 · 图片并发上限：0/);
-    for(const concurrency of [-1, .5, NaN]) assert.equal(validGateQueueSnapshot({global:{...counts,concurrency},image_cooldown_remaining:0,sampled_at:now/1000}),false);
+    assert.equal(validGateQueueSnapshot({global:counts,image_queue:{queued:1,ready:0,active:2,total:3,capacity:0},image_cooldown_remaining:0,sampled_at:now/1000}),true);
+    assert.match(display(0),/全站：处理中 2 · 排队 1 · 待提交 3 · 并发上限 0/);
+    for(const concurrency of [-1, .5, NaN]) assert.equal(validGateQueueSnapshot({global:{...counts,concurrency},image_queue:{queued:1,ready:0,active:2,total:3,capacity:0},image_cooldown_remaining:0,sampled_at:now/1000}),false);
     console.log('PASS queue display: clock skew, real countdown, local expiry and compact copy');
+  }
+  {
+    reset();let ticket,ready=false,position=3;
+    queueResponder=(url,options)=>{
+      if(url.endsWith('/image-queue')) {
+        const body=JSON.parse(options.body);queueCreates.push(body);
+        ticket={ticket_id:'waiting-ticket',...body,state:'queued',position,expires_in:120,poll_after:3};
+        assert.deepEqual(Object.keys(body).sort(),['operation','request_id']);
+      } else if(options.method==='DELETE')ticket={...ticket,state:'cancelled',position:0};
+      else ticket={...ticket,state:ready?'ready':'queued',position:ready?0:position};
+      return Response.json(ticket);
+    };
+    const client=new GateApi('http://fixture','A');
+    await client.request('/batches',batch('queued-image'));await settle();
+    assert.equal((await jobs(client))[0].status,'waiting');
+    assert.equal((await jobs(client))[0].queue_position,3);assert.deepEqual(names,[],'Images must remain local while queued');
+    position=2;await advance(3000);assert.equal((await jobs(client))[0].queue_position,2);
+    ready=true;await advance(3000);await settle();
+    assert.deepEqual(names,['queued-image']);
+    assert.equal(executeHeaders[0]['X-NAI-Gate-Queue-Ticket'],'waiting-ticket');
+    assert.equal(executeHeaders[0]['X-NAI-Gate-Queue-Request'],ticket.request_id);
+    assert.ok(!('queue_ticket' in executeTasks[0]));
+    await ack(client);client.close();await settle();
+    console.log('PASS shared queue position updates before any image upload and execution uses its owned ticket');
+  }
+  {
+    reset();let ticket,query;
+    queueResponder=(url,options)=>{
+      if(url.endsWith('/image-queue')) {
+        query=JSON.parse(options.body);
+        ticket={ticket_id:'paid-ticket',...query,state:'queued',position:2,expires_in:120,poll_after:3};
+      } else if(options.method==='DELETE')ticket={...ticket,state:'cancelled',position:0};
+      return Response.json(ticket);
+    };
+    const client=new GateApi('http://fixture','A');
+    await client.request('/batches',{items:[{...task('paid-image'),cost_limit:{anlas:10,v5:0}}]});await settle();
+    assert.equal(query.requires_anlas,true);
+    assert.deepEqual(Object.keys(query).sort(),['operation','request_id','requires_anlas']);
+    assert.deepEqual(names,[]);
+    client.close();await settle();
+    console.log('PASS paid queue admission carries a boolean hint while image pixels remain local');
+  }
+  {
+    reset();let ticket;
+    queueResponder=(url,options)=>{
+      if(url.endsWith('/image-queue'))ticket={ticket_id:'cancel-ticket',...JSON.parse(options.body),state:'queued',position:2,expires_in:120,poll_after:3};
+      if(options.method==='DELETE'){ticket={...ticket,state:'cancelled',position:0};queueCancels.push(ticket.ticket_id);}
+      return Response.json(ticket);
+    };
+    const client=new GateApi('http://fixture','A');
+    await client.request('/batches',batch('never-upload'));await settle();
+    const job=(await jobs(client))[0];
+    await client.request(`/jobs/${job.id}/cancel`,{});await settle();await advance(10000);
+    assert.equal((await jobs(client))[0].status,'cancelled');assert.deepEqual(names,[]);assert.equal(queueCancels.length,1);
+    client.close();await settle();
+    console.log('PASS cancelling a waiting ticket never uploads and clears its polling timers');
+  }
+  {
+    reset();let ticket,created=0;
+    queueResponder=(url,options)=>{
+      if(url.endsWith('/image-queue')) {
+        created++;queueCreates.push(JSON.parse(options.body));
+        ticket={ticket_id:'pause-'+created,...JSON.parse(options.body),state:created===1?'queued':'ready',position:created===1?2:0,expires_in:120,poll_after:3};
+      }
+      if(options.method==='DELETE')ticket={...ticket,state:'cancelled',position:0};
+      return Response.json(ticket);
+    };
+    const client=new GateApi('http://fixture','A');
+    await client.request('/batches',batch('paused-queue'));await settle();
+    await client.request('/queue/pause',{});await settle();
+    assert.equal((await jobs(client))[0].status,'queued');assert.deepEqual(names,[]);
+    await client.request('/queue/resume',{});await settle();
+    assert.equal(created,2);assert.notEqual(queueCreates[0].request_id,queueCreates[1].request_id);
+    assert.deepEqual(names,['paused-queue']);await ack(client);client.close();await settle();
+    console.log('PASS pausing releases the ticket and resuming joins once with a fresh safe attempt');
+  }
+  {
+    reset();let releasePreparation,preparations=0;
+    enhancePreparation=()=>++preparations===1?new Promise(resolve=>{releasePreparation=resolve;}):Promise.resolve('prepared-image');
+    const client=new GateApi('http://fixture','A');
+    const item={...task('paused-enhance'),operation:'img2img',parameters:{enhance:true,image:'source'}};
+    await client.request('/batches',{request_id:'paused-enhance-batch',items:[item]});await settle();
+    const firstTicket=queueCreates[0].request_id;
+    await client.request('/queue/pause',{});await client.request('/queue/resume',{});
+    assert.deepEqual(names,[]);
+    releasePreparation('old-prepared-image');await settle();await settle();
+    assert.equal(queueCreates.length,2);
+    assert.notEqual(queueCreates[1].request_id,firstTicket);
+    assert.deepEqual(names,['paused-enhance']);
+    assert.equal(executeHeaders[0]['X-NAI-Gate-Queue-Request'],queueCreates[1].request_id);
+    assert.equal(executeTasks[0].parameters.image,'prepared-image');
+    await ack(client);client.close();await settle();
+    enhancePreparation=async()=> 'prepared-image';
+    console.log('PASS Enhance pause/resume during preparation never uploads with the cancelled ticket');
+  }
+  {
+    reset();let ticket,creates=0;
+    queueResponder=(url,options)=>{
+      if(url.endsWith('/image-queue')) {
+        const body=JSON.parse(options.body);queueCreates.push(body);creates++;
+        ticket??={ticket_id:'lost-create',...body,state:'ready',position:0,expires_in:120,poll_after:3};
+        if(creates===1)throw new TypeError('create response lost');
+        assert.equal(body.request_id,ticket.request_id);
+      }
+      return Response.json(ticket);
+    };
+    const client=new GateApi('http://fixture','A');
+    await client.request('/batches',batch('recover-create'));await settle();assert.deepEqual(names,[]);
+    await advance(3000);await settle();
+    assert.equal(creates,2);assert.deepEqual(names,['recover-create']);await ack(client);client.close();await settle();
+    console.log('PASS a lost ticket-create response is recovered idempotently without duplicate execution');
+  }
+  {
+    reset();let ticket;
+    queueResponder=(url,options)=>{
+      if(url.endsWith('/image-queue')) {
+        ticket={ticket_id:'expired-ticket',...JSON.parse(options.body),state:'queued',position:2,expires_in:120,poll_after:3};
+        return Response.json(ticket);
+      }
+      return Response.json({...ticket,state:'expired',position:0,expires_in:0});
+    };
+    const client=new GateApi('http://fixture','A');
+    await client.request('/batches',batch('expired'));await settle();await advance(3000);await settle();
+    assert.equal((await jobs(client))[0].status,'failed');assert.equal((await state(client)).queue_paused,true);
+    assert.deepEqual(names,[]);client.close();await settle();
+    console.log('PASS an expired ticket stops before image upload instead of automatically recreating a task');
+  }
+  {
+    reset();let ticket;
+    queueResponder=(url,options)=>{
+      if(url.endsWith('/image-queue'))ticket={ticket_id:'encode-wait',...JSON.parse(options.body),state:'queued',position:2,expires_in:120,poll_after:3};
+      if(options.method==='DELETE')ticket={...ticket,state:'cancelled',position:0};
+      return Response.json(ticket);
+    };
+    const client=new GateApi('http://fixture','A');
+    const outcome=client.encodeVibe({...task('encoding-queue'),operation:'encode_vibe'}).then(value=>({value}),error=>({error}));
+    await settle();
+    assert.equal((await state(client)).encoding_wait_reason,'queue');
+    assert.equal((await state(client)).encoding_queue_position,2);
+    await client.request('/queue/cancel-encoding',{});
+    assert.match((await outcome).error.message,/已取消待执行的编码/);
+    assert.deepEqual(names,[]);assert.equal((await state(client)).encoding,false);
+    client.close();await settle();
+    console.log('PASS Vibe encoding has a cancellable queue position and cancellation never uploads');
+  }
+  {
+    reset();let ticket,creates=0,deletes=0;
+    queueResponder=(url,options)=>{
+      if(url.endsWith('/image-queue')){creates++;ticket={ticket_id:'paused-encode',...JSON.parse(options.body),state:'queued',position:2,expires_in:120,poll_after:3};}
+      if(options.method==='DELETE'){deletes++;ticket={...ticket,state:'cancelled',position:0};}
+      return Response.json(ticket);
+    };
+    const client=new GateApi('http://fixture','A');
+    const outcome=client.encodeVibe({...task('paused-encoding'),operation:'encode_vibe'}).then(value=>({value}),error=>({error}));
+    await settle();await client.request('/queue/pause',{});await settle();
+    assert.equal((await state(client)).encoding_paused,true);
+    assert.equal((await state(client)).encoding_can_cancel,true);
+    await client.request('/queue/cancel-encoding',{});
+    assert.match((await outcome).error.message,/已取消待执行的编码/);
+    assert.equal(creates,1);assert.equal(deletes,1);assert.deepEqual(names,[]);
+    assert.equal((await state(client)).encoding,false);assert.equal((await state(client)).encoding_can_cancel,false);
+    client.close();await settle();
+    console.log('PASS paused Vibe encoding can be cancelled locally without recreating a ticket or uploading');
+  }
+  {
+    for(const resumeEarly of [false,true]) {
+      reset();let creates=0,releaseDelete;const tickets=new Map();
+      queueResponder=(url,options)=>{
+        if(url.endsWith('/image-queue')) {
+          creates++;
+          const body=JSON.parse(options.body);
+          if(tickets.has(body.request_id))return Response.json(tickets.get(body.request_id));
+          const ticket={ticket_id:'uncertain-encode',...body,state:'ready',position:0,expires_in:120,poll_after:3};
+          tickets.set(body.request_id,ticket);
+          return new Promise(()=>{}); // The server created the ticket, but its response was lost.
+        }
+        if(options.method==='DELETE')return new Promise(resolve=>{releaseDelete=resolve;});
+        return Response.json([...tickets.values()][0]);
+      };
+      const client=new GateApi('http://fixture','A');
+      const outcome=client.encodeVibe({...task('uncertain-encoding'),operation:'encode_vibe'})
+        .then(value=>({value}),error=>({error}));
+      try {
+        await settle();
+        const pausing=client.request('/queue/pause',{}).then(value=>({value}),error=>({error}));
+        await settle();
+        if(resumeEarly)await client.request('/queue/resume',{});
+        releaseDelete(Response.json({detail:'queue unavailable'},{status:503}));
+        assert.match((await pausing).error?.message ?? '',/编码取消状态未确认/);
+        assert.match((await outcome).error?.message ?? '',/编码取消状态未确认/);
+        assert.equal((await state(client)).encoding,false);
+        assert.equal((await state(client)).queue_paused,true);
+        await client.request('/queue/resume',{});await advance(6000);
+        assert.equal(creates,2,'Only idempotent recovery of the original ticket is allowed');
+        assert.equal(tickets.size,1);assert.deepEqual(names,[]);
+      } finally {
+        client.close();await settle();await outcome;
+      }
+    }
+    console.log('PASS unconfirmed Vibe pause cancellation reports failure and never creates another ticket, including rapid resume');
   }
   {
     for(const [remaining,label] of [[8,'8'],[7.4,'7.4'],[0.01,'0.01']]) {

@@ -71,7 +71,7 @@ export type Result = {
     cost: { anlas: number; v5: number; legacy_free_images: number };
   } };
 };
-export type QueueWaitReason = "rpm" | "cooldown" | "key_busy" | "service_busy";
+export type QueueWaitReason = "rpm" | "cooldown" | "key_busy" | "service_busy" | "queue";
 export type Job = Task & {
   id: string;
   status:
@@ -88,6 +88,7 @@ export type Job = Task & {
   retry_at?: number;
   retry_count?: number;
   retry_reason?: QueueWaitReason;
+  queue_position?: number;
   execution_phase?: "submitting" | "waiting_result" | "generating";
   last_data_at?: number;
   error?: string;

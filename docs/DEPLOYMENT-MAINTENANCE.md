@@ -36,6 +36,22 @@ DOCKER_CONFIG="$docker_config_dir" bash deploy.sh
 
 ## 日常更新、备份与回退
 
+### 统一生图队列版本的配套升级
+
+`v0.1.0-beta.11` 要求 Gate 提供 `/v1/image/queue` 的取号、位置、心跳和取消接口。配套源码为 [service-tools 提交 bd65164](https://github.com/KronosXup/service-tools/commit/bd651647cc8276b3223f39ff58e68227f103e479)；beta.10 的报价配套 Gate 尚不包含该功能。
+
+1. 结束当前任务并备份 Gate，保留需要的本机图库和草稿。
+2. 在已有 Gate 源码目录取得配套提交，然后按下文“更新 Gate”步骤构建：
+
+   ```sh
+   git -C gate fetch https://github.com/KronosXup/service-tools.git feat/lightweight-image-queue
+   git -C gate checkout bd651647cc8276b3223f39ff58e68227f103e479
+   ```
+
+3. 再把工作台更新为 `ghcr.io/kronosxup/nai-workbench:v0.1.0-beta.11`，刷新页面，确认排队状态正常后再开始任务。安装向导只更新工作台，不会自动升级 Gate。
+
+等待票据只保存在内存；Gate 重启或页面长时间失联后需重新排队。取消已确认的等待不会上传图片；取消状态未确认或生成结果未知时会停止自动提交。旧图片客户端继续可用，也经过统一准入。
+
 ### 计价参数报价版本的配套升级
 
 `v0.1.0-beta.10` 需要 Gate 支持最多 4 KiB 的 `{operation,model,parameters}` 报价合同。配套源码为 [service-tools 提交 2f81167](https://github.com/KronosXup/service-tools/commit/2f81167e52c946cce4740b9d890fc3b44c00dba4)，对应 [PR #8](https://github.com/fangchen2003/service-tools/pull/8)。仅把工作台升级到此版本，或仅确认 `/api/health` 正常，都不能完成这次协议升级。

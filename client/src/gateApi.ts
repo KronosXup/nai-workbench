@@ -1,9 +1,11 @@
 import { Api } from './api';
 import { quoteRequest } from './quote';
+import { ImageQueueWait, queueOperation, type ImageQueueTicket } from './imageQueue';
 import { uuid } from './types';
 import type { Job, Task, Result, User, QueueWaitReason } from './types';
 
 type PreviewJob = Job & { preview?: { image: string; media_type: string; step?: number } };
+type AdmissionAttempt = { queue: ImageQueueWait; job?: PreviewJob; paused: boolean };
 type ExecutionFailure = { code?: string; reason?: string; retryable?: boolean; retry_after?: number; uncertain?: boolean };
 const EXECUTION_TIMEOUT_MS = 360_000;
 const FETCH_TIMEOUT_MESSAGE = 'Gate 请求等待超过 360 秒，结果未确认；请核对用量后再手动恢复';
@@ -98,7 +100,12 @@ export class GateApi extends Api {
   private encoding = false;
   private encodingRetryAt?: number;
   private encodingWaitReason?: QueueWaitReason;
+  private encodingQueuePosition?: number;
+  private encodingCancelled = false;
   private encodingWait?: { resume: () => void; pause: () => void };
+  private admission?: AdmissionAttempt;
+  private queueApi = { request: <T,>(path: string, body?: unknown, method?: string, signal?: AbortSignal) =>
+    super.request<T>(path, body, method, signal) };
   private queuePaused = false;
   private retryTimer?: ReturnType<typeof setTimeout>;
 
@@ -112,17 +119,31 @@ export class GateApi extends Api {
     if(this.closed)throw new Error('连接已关闭');
     if(this.pending()) throw new Error('请等待当前队列保存完成，再编码新的 Vibe 参考');
     this.encoding=true;
+    this.encodingCancelled=false;
     let retries=0;
     let retryAt:number|undefined;
     try { while(true) {
       let receivedOutput=false;
+      let submitted=false;
+      let admission: ImageQueueWait | undefined;
+      let attempt: AdmissionAttempt | undefined;
       const execution=linkedExecution(this.controller.signal);
       try {
         await this.waitForEncodingReady(retryAt);
         if(this.closed)throw new Error('连接已关闭');
         if(this.queuePaused)continue;
+        this.encodingWaitReason='queue';
+        admission=new ImageQueueWait(this.queueApi,queueOperation(task.operation),execution.signal,ticket=>{
+          this.encodingQueuePosition=ticket?.state==='queued'?ticket.position:ticket?.state==='ready'?0:undefined;
+        },true);
+        attempt={queue:admission,paused:false};this.admission=attempt;
+        const ticket=await admission.wait();
+        if(this.closed || this.encodingCancelled || this.queuePaused || attempt.paused)throw new Error('编码排队已停止');
+        this.admission=undefined;
+        this.encodingQueuePosition=undefined;
         this.encodingWaitReason=undefined;
-        const response=await execution.wait(()=>this.raw('/execute',executionPayload(task),execution.signal),FETCH_TIMEOUT_MESSAGE);
+        submitted=true;
+        const response=await execution.wait(()=>this.raw('/execute',executionPayload(task),execution.signal,ticket),FETCH_TIMEOUT_MESSAGE);
         if(!response.ok) {
           const error=await execution.wait(()=>response.json().catch(()=>({detail:`编码请求失败 (${response.status})`})),STREAM_TIMEOUT_MESSAGE);
           const detail=typeof error.detail==='object' && error.detail!==null?error.detail:error;
@@ -163,12 +184,29 @@ export class GateApi extends Api {
         if(!encoding)throw new Error('编码结果未确认，请核对用量后再试；没有自动重试');
         return encoding;
       } catch(error) {
+        if(this.encodingCancelled) {
+          const cancelled=admission ? await admission.cancel() : true;
+          throw new Error(cancelled?'已取消待执行的编码':'已停止本页编码等待，但服务端取消状态未确认；请核对后再操作');
+        }
+        if(!submitted && (this.queuePaused || attempt?.paused) && !this.closed &&
+            !['active','finished'].includes(admission?.ticket?.state ?? '')) {
+          if(admission && !await admission.cancel()) {
+            this.queuePaused=true;
+            throw new Error('编码取消状态未确认；已停止本页编码等待，请核对后再操作');
+          }
+          retryAt=undefined;continue;
+        }
         const failure=error instanceof GateExecutionError?error.failure:undefined;
         if(this.closed || !mayRetry(failure,receivedOutput))throw error;
         this.encodingWaitReason=waitReason(failure!);
         retryAt=Date.now()/1000+retryDelay(failure!,++retries);
-      } finally { execution.dispose(); }
-    } } finally {this.encoding=false;this.encodingRetryAt=undefined;this.encodingWaitReason=undefined;this.meAt=0;void this.pump();}
+      } finally {
+        if(this.admission?.queue===admission)this.admission=undefined;
+        if(admission && !receivedOutput)await admission.cancel().catch(()=>false);
+        admission?.dispose();
+        execution.dispose();
+      }
+    } } finally {this.encoding=false;this.encodingRetryAt=undefined;this.encodingWaitReason=undefined;this.encodingQueuePosition=undefined;this.meAt=0;void this.pump();}
   }
   private async waitForEncodingReady(retryAt?: number) {
     const signal=this.controller.signal;
@@ -182,6 +220,7 @@ export class GateApi extends Api {
       const ready=()=>{
         clear();
         if(signal.aborted){abort();return;}
+        if(this.encodingCancelled){cleanup();reject(new Error('已取消待执行的编码'));return;}
         if(this.queuePaused)return;
         const wait=(retryAt??0)-Date.now()/1000;
         if(wait>0)timer=setTimeout(ready,Math.max(1,Math.ceil(wait*1000)));
@@ -199,9 +238,10 @@ export class GateApi extends Api {
     this.jobs = [];
     this.blobs.clear();
   }
-  private async raw(path: string, body?: unknown, signal:AbortSignal=this.controller.signal) {
+  private async raw(path: string, body?: unknown, signal:AbortSignal=this.controller.signal, ticket?:ImageQueueTicket) {
     return fetch(`${this.base}/api${path}`, {method: body === undefined ? 'GET' : 'POST',
-      headers: {Authorization: `Bearer ${this.accessToken}`, 'Content-Type':'application/json'},
+      headers: {Authorization: `Bearer ${this.accessToken}`, 'Content-Type':'application/json',
+        ...(ticket?{'X-NAI-Gate-Queue-Ticket':ticket.ticket_id,'X-NAI-Gate-Queue-Request':ticket.request_id}:{})},
       body: body === undefined ? undefined : JSON.stringify(body), cache:'no-store', signal});
   }
   override async request<T>(path: string, body?: unknown, method?: string, signal?: AbortSignal): Promise<T> {
@@ -215,13 +255,34 @@ export class GateApi extends Api {
     }
     if (path === '/jobs') return {jobs:structuredClone(this.jobs), queue_paused:this.queuePaused,
       encoding:this.encoding, encoding_paused:Boolean(this.encodingWait && this.queuePaused), encoding_retry_at:this.encodingRetryAt,
-      encoding_wait_reason:this.encodingWaitReason} as T;
+      encoding_wait_reason:this.encodingWaitReason, encoding_queue_position:this.encodingQueuePosition,
+      encoding_can_cancel:Boolean(this.encoding && (this.encodingWait || (this.admission && !this.admission.job)))} as T;
     if (path === '/queue/pause' || path === '/queue/resume') {
       this.queuePaused = path === '/queue/pause';
       this.clearRetryTimer();
-      if (this.queuePaused) this.encodingWait?.pause();
+      if (this.queuePaused) {
+        this.encodingWait?.pause();
+        if(this.admission) {
+          const current=this.admission;
+          current.paused=true;
+          const cancelled=await current.queue.cancel().catch(()=>false);
+          if(!cancelled && current.job) {
+            current.job.status='unknown';current.job.error='取消状态未确认；请核对服务端任务，勿重复提交';
+          } else if(!cancelled)throw new Error('编码取消状态未确认；已停止本页编码等待，请核对后再操作');
+        }
+      }
       else { this.encodingWait?.resume(); void this.pump(); }
       return {jobs:structuredClone(this.jobs), queue_paused:this.queuePaused} as T;
+    }
+    if(path==='/queue/cancel-encoding') {
+      if(!this.encoding || (!this.encodingWait && (!this.admission || this.admission.job)))
+        throw new Error('只能取消尚在排队的编码');
+      this.encodingCancelled=true;
+      if(this.admission) {
+        const cancelled=await this.admission.queue.cancel();
+        if(!cancelled)throw new Error('取消状态未确认；请核对服务端编码任务');
+      } else this.encodingWait?.resume();
+      return {cancelled:true} as T;
     }
     if (path === '/batches') {
       const batch = body as {request_id:string; items:Task[]};
@@ -240,6 +301,14 @@ export class GateApi extends Api {
       if (!job || !['queued','waiting'].includes(job.status)) throw new Error('只能取消尚未发送或正在等待重试的任务');
       if (job.status === 'waiting') this.clearRetryTimer();
       job.status = 'cancelled'; job.completed_at = Date.now()/1000; delete job.retry_at; delete job.retry_reason;
+      if(this.admission?.job===job) {
+        const cancelled=await this.admission.queue.cancel().catch(()=>false);
+        if(!cancelled) {
+          job.status='unknown';job.error='取消状态未确认；请核对服务端任务，勿重复提交';this.queuePaused=true;
+          throw new Error(job.error);
+        }
+      }
+      delete job.queue_position;
       void this.pump();
       return structuredClone(job) as T;
     }
@@ -284,13 +353,21 @@ export class GateApi extends Api {
     }
     this.clearRetryTimer();
     this.working = true;
-    job.status = 'running'; job.started_at = Date.now()/1000; job.last_data_at=job.started_at;
-    // In flight does not prove Gate has acquired a slot or dispatched generation.
-    job.execution_phase = 'submitting';
-    delete job.retry_at; delete job.retry_reason; delete job.error; delete job.completed_at;
+    job.status = 'waiting'; job.retry_reason='queue';
+    delete job.queue_position; delete job.retry_at; delete job.error; delete job.completed_at;
     let receivedFinal = false, receivedOutput = false;
+    let submitted=false;
+    let admission: ImageQueueWait | undefined;
+    let attempt: AdmissionAttempt | undefined;
     const execution=linkedExecution(this.controller.signal);
     try {
+      admission=new ImageQueueWait(this.queueApi,queueOperation(job.operation),execution.signal,ticket=>{
+        if(!this.closed && job.status==='waiting')
+          job.queue_position=ticket?.state==='queued'?ticket.position:ticket?.state==='ready'?0:undefined;
+      },(job.cost_limit?.anlas ?? 0)>0);
+      attempt={queue:admission,job,paused:false};this.admission=attempt;
+      const ticket=await admission.wait();
+      if(this.closed || this.queuePaused || attempt.paused || ['cancelled','unknown'].includes(job.status))throw new Error('排队已停止');
       const task = executionPayload({request_id:job.request_id, operation:job.operation, model:job.model, prompt:job.prompt,
         negative_prompt:job.negative_prompt, parameters:job.parameters, label:job.label, cost_limit:job.cost_limit});
       if (task.operation === 'img2img' && task.parameters.enhance === true) {
@@ -301,7 +378,14 @@ export class GateApi extends Api {
           throw new GateExecutionError('增强图片处理失败，本次未提交，请重新选择图片', {code:'enhance_preparation_failed',uncertain:false});
         }
       }
-      const response = await execution.wait(()=>this.raw('/execute',task,execution.signal),FETCH_TIMEOUT_MESSAGE);
+      if(this.closed || this.queuePaused || attempt.paused || ['cancelled','unknown'].includes(job.status))throw new Error('排队已停止');
+      this.admission=undefined;
+      delete job.queue_position;delete job.retry_reason;
+      job.status='running';job.started_at=Date.now()/1000;job.last_data_at=job.started_at;
+      // Admission permits submission; only an upstream preview proves generation has started.
+      job.execution_phase='submitting';
+      submitted=true;
+      const response = await execution.wait(()=>this.raw('/execute',task,execution.signal,ticket),FETCH_TIMEOUT_MESSAGE);
       job.last_data_at=Date.now()/1000;
       if (!response.ok) {
         const error = await execution.wait(()=>response.json().catch(()=>({detail:`请求失败 (${response.status})`})),STREAM_TIMEOUT_MESSAGE);
@@ -354,6 +438,14 @@ export class GateApi extends Api {
       } } finally { cancelReader(reader); }
       if (!receivedFinal) throw new Error('请求中断，未收到最终图；请核对 Gate 用量，勿直接重试');
     } catch (error) {
+      if(!submitted) {
+        if(this.closed || ['cancelled','unknown'].includes(job.status))return;
+        if((this.queuePaused || attempt?.paused) && !['active','finished'].includes(admission?.ticket?.state ?? '')) {
+          job.status='queued';delete job.retry_reason;delete job.queue_position;return;
+        }
+        job.status='failed';job.error=error instanceof Error?error.message:'排队失败，本次未提交';this.queuePaused=true;
+        return;
+      }
       job.error = error instanceof Error ? error.message : '生成失败';
       const failure = error instanceof GateExecutionError ? error.failure : undefined;
       if (mayRetry(failure, receivedOutput)) {
@@ -364,9 +456,15 @@ export class GateApi extends Api {
         this.queuePaused = true;
       }
     } finally {
+      if(this.admission?.queue===admission)this.admission=undefined;
+      // A failed upload may leave a ready ticket. Active tickets refuse cancellation;
+      // their lifetime and settlement remain owned by Gate, including on disconnect.
+      if(admission && !receivedFinal)await admission.cancel().catch(()=>false);
+      admission?.dispose();
       execution.dispose();
+      delete job.queue_position;
       delete job.execution_phase;
-      if (job.retry_at === undefined) job.completed_at = Date.now()/1000;
+      if (['succeeded','failed','cancelled','unknown'].includes(job.status)) job.completed_at = Date.now()/1000;
       this.meAt = 0; this.working = false;
       if (!this.closed) void this.pump();
     }

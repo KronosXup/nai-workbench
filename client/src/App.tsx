@@ -30,7 +30,7 @@ import { verifyGateHealth } from "./connection";
 import { configurationIssueFor, effectiveModelForOperation, usesGenerationSettings } from "./taskValidation";
 import type { QuoteError } from "./taskValidation";
 import { GateApi, MAX_PENDING } from "./gateApi";
-import GateQueueStatus, { useGateQueueStatus, gateJobLabel, queueWaitLabel } from "./GateQueueStatus";
+import GateQueueStatus, { useGateQueueStatus, gateJobLabel, queueWaitLabel, queuePositionLabel } from "./GateQueueStatus";
 import * as local from "./storage";
 import { defaultParameters, labels, newDraft, uuid } from "./types";
 import type {
@@ -329,6 +329,8 @@ export default function App() {
   const [encodingPaused, setEncodingPaused] = useState(false);
   const [encodingRetryAt, setEncodingRetryAt] = useState<number>();
   const [encodingWaitReason, setEncodingWaitReason] = useState<QueueWaitReason>();
+  const [encodingQueuePosition, setEncodingQueuePosition] = useState<number>();
+  const [encodingCanCancel, setEncodingCanCancel] = useState(false);
   const [queueNow, setQueueNow] = useState(() => Date.now() / 1000);
   const [notice, setNotice] = useState("");
   const [failure, setFailure] = useState("");
@@ -472,7 +474,9 @@ export default function App() {
     encodingPaused ? 'Vibe 编码已暂停' : queuePaused ?
       (unsentCount ? `队列已暂停，${unsentCount} 项待发送` : runningJob ? '后续任务已暂停，当前任务继续处理' : '队列已暂停，暂无待发任务') :
     encodingRetryAt ? `Vibe 编码：${queueWaitLabel(encodingWaitReason)} · ${countdown(encodingRetryAt)} 秒后自动重试` :
-    waitingJob ? `${queueWaitLabel(waitingJob.retry_reason)} · ${countdown(waitingJob.retry_at)} 秒后自动重试` :
+    queueEncoding && encodingWaitReason==='queue' ? `Vibe 编码：${queuePositionLabel(encodingQueuePosition)}` :
+    waitingJob ? (waitingJob.retry_reason==='queue' ? queuePositionLabel(waitingJob.queue_position) :
+      `${queueWaitLabel(waitingJob.retry_reason)} · ${countdown(waitingJob.retry_at)} 秒后自动重试`) :
     queueEncoding ? 'Vibe 编码：等待服务器结果' : runningJob ? gateJobLabel(runningJob, queueNow) : '本机队列等待发送';
   const quoteUnitLabel = (units: number) => quote?.unit_label.includes("V5") ? `${units} V5 单位` : `${units} 积分`;
   function closeMask() { setShowMask(false); setPendingMaskDraft(null); }
@@ -572,7 +576,7 @@ export default function App() {
     setCaps(null);
     setJobs([]);
     setSaveIssue(null);
-    setQueuePaused(false); setQueueEncoding(false); setEncodingPaused(false); setEncodingRetryAt(undefined); setEncodingWaitReason(undefined);
+    setQueuePaused(false); setQueueEncoding(false); setEncodingPaused(false); setEncodingRetryAt(undefined); setEncodingWaitReason(undefined); setEncodingQueuePosition(undefined); setEncodingCanCancel(false);
     setBlankCanvas(false); setPendingMaskDraft(null); setShowMask(false); setCanvasInput(null); setPixelInput(null);
     setRows([]);
     chooseResult(undefined);
@@ -611,7 +615,7 @@ export default function App() {
     setRows([]);
     setJobs([]);
     setSaveIssue(null);
-    setQueuePaused(false); setQueueEncoding(false); setEncodingPaused(false); setEncodingRetryAt(undefined); setEncodingWaitReason(undefined);
+    setQueuePaused(false); setQueueEncoding(false); setEncodingPaused(false); setEncodingRetryAt(undefined); setEncodingWaitReason(undefined); setEncodingQueuePosition(undefined); setEncodingCanCancel(false);
     setBlankCanvas(false); setPendingMaskDraft(null); setShowMask(false); setCanvasInput(null); setPixelInput(null);
     chooseResult(undefined);
     setDraft(newDraft());
@@ -717,7 +721,7 @@ export default function App() {
       owner = identity.current;
     let saving: { resultId: string; saved: boolean } | undefined;
     try {
-      const result = await api.request<{ jobs: PreviewJob[]; queue_paused?: boolean; encoding?: boolean; encoding_retry_at?: number; encoding_paused?: boolean; encoding_wait_reason?: QueueWaitReason }>("/jobs");
+      const result = await api.request<{ jobs: PreviewJob[]; queue_paused?: boolean; encoding?: boolean; encoding_retry_at?: number; encoding_paused?: boolean; encoding_wait_reason?: QueueWaitReason; encoding_queue_position?: number; encoding_can_cancel?: boolean }>("/jobs");
       if (seq !== generation.current) return;
       setJobs(result.jobs);
       setQueuePaused(Boolean(result.queue_paused));
@@ -725,6 +729,8 @@ export default function App() {
       setEncodingPaused(Boolean(result.encoding_paused));
       setEncodingRetryAt(result.encoding_retry_at);
       setEncodingWaitReason(result.encoding_wait_reason);
+      setEncodingQueuePosition(result.encoding_queue_position);
+      setEncodingCanCancel(Boolean(result.encoding_can_cancel));
       setQueueNow(Date.now() / 1000);
       let newestSaved: LocalImage | undefined;
       let newestDirectorSaved: LocalImage | undefined;
@@ -2358,7 +2364,12 @@ export default function App() {
               }}>{queuePaused ? <Play size={14}/> : <Pause size={14}/>} {queuePaused ? "继续后续任务" : "暂停后续任务"}</button>
             </div>
             <div className="queue-server-summary" role="status"><GateQueueStatus monitor={serverQueue}/></div>
-            {(encodingRetryAt || encodingPaused) && <p className="queue-wait" role="status">{encodingPaused || queuePaused ? "Vibe 编码已暂停，继续后续任务后恢复。" : `Vibe 编码：${queueWaitLabel(encodingWaitReason)}，${countdown(encodingRetryAt)} 秒后自动重试。`}</p>}
+            {(encodingRetryAt || encodingPaused || (queueEncoding && encodingWaitReason==='queue')) && <p className="queue-wait" role="status">{encodingPaused || queuePaused ? "Vibe 编码已暂停，继续后将重新排队。" : encodingWaitReason==='queue' ? `Vibe 编码：${queuePositionLabel(encodingQueuePosition)}` : `Vibe 编码：${queueWaitLabel(encodingWaitReason)}，${countdown(encodingRetryAt)} 秒后自动重试。`}
+              {encodingCanCancel && <button type="button" onClick={async()=>{
+                try { await api?.request('/queue/cancel-encoding',{}); void refresh(); }
+                catch(error) { fail(error); }
+              }}>取消编码排队</button>}
+            </p>}
             <div className="queue-list">
               {jobs.length ? (
                 displayJobs.map((job) => (
@@ -2376,7 +2387,7 @@ export default function App() {
                     </div>
                     <h3>{job.label || labels[job.operation]}</h3>
                     <p>{job.prompt || labels[job.operation]}</p>
-                    {job.status === "waiting" && <div className="queue-wait" role="status">{queuePaused ? "已暂停，继续队列后恢复等待" : `${countdown(job.retry_at)} 秒后自动重试`}</div>}
+                    {job.status === "waiting" && <div className="queue-wait" role="status">{queuePaused ? "已暂停，继续后将重新排队" : job.retry_reason==='queue' ? '请保持页面打开，轮到后自动提交' : `${countdown(job.retry_at)} 秒后自动重试`}</div>}
                     {job.error && <div className="job-error">{job.error}</div>}
                     {saveIssue && job.results.some(r => r.id === saveIssue.resultId) && <div className="job-error" role="alert">{saveIssue.message}</div>}
                     {job.status === "unknown" && (

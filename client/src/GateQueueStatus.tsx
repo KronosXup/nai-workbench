@@ -4,6 +4,7 @@ import type { Job, QueueWaitReason } from './types';
 
 type Snapshot = {
   global: { active: number; waiting: number; concurrency: number };
+  image_queue: { queued: number; ready: number; active: number; total: number; capacity: number };
   image_cooldown_remaining: number;
   sampled_at: number;
 };
@@ -11,11 +12,14 @@ type Monitor = { api: Api | null; snapshot?: Snapshot; receivedAt?: number; unav
 const waitLabels: Record<QueueWaitReason, string> = {
   rpm: '请求频率受限', cooldown: '图片服务冷却中',
   key_busy: '等待此 Key 的并发空位', service_busy: '服务繁忙，等待重试',
+  queue: '全站排队',
 };
 export const queueWaitLabel = (reason?: QueueWaitReason) => reason ? waitLabels[reason] : '等待重试';
+export const queuePositionLabel = (position?: number) => position === undefined ? '正在获取全站排队位置' :
+  position === 0 ? '轮到本任务，准备提交' : `全站排队第 ${position} 位（前方 ${position - 1} 项）`;
 export function gateJobLabel(job: Job, now = Date.now() / 1000) {
   if (job.status === 'queued') return '本机待发送';
-  if (job.status === 'waiting') return queueWaitLabel(job.retry_reason);
+  if (job.status === 'waiting') return job.retry_reason==='queue'?queuePositionLabel(job.queue_position):queueWaitLabel(job.retry_reason);
   if (job.status === 'running' && now - (job.last_data_at ?? job.started_at ?? now) >= 60)
     return '暂未收到新数据，仍在等待结果';
   if (job.status === 'running') return job.execution_phase === 'generating' ? '生成中' :
@@ -24,7 +28,10 @@ export function gateJobLabel(job: Job, now = Date.now() / 1000) {
 }
 export function validGateQueueSnapshot(value: Snapshot) {
   const g = value?.global;
+  const q = value?.image_queue;
   return g && [g.active, g.waiting, g.concurrency].every(n => Number.isInteger(n) && n >= 0) &&
+    q && [q.queued,q.ready,q.active,q.total,q.capacity].every(n=>Number.isInteger(n) && n>=0) &&
+    q.total===q.queued+q.ready+q.active &&
     Number.isFinite(value.image_cooldown_remaining) && value.image_cooldown_remaining >= 0 &&
     Number.isFinite(value.sampled_at) && value.sampled_at > 0;
 }
@@ -98,6 +105,6 @@ export default function GateQueueStatus({ monitor }: { monitor: Monitor }) {
     return <span>排队状态暂不可用</span>;
   if (!snapshot) return <span>读取排队状态…</span>;
   const cooldown = Math.max(0, Math.ceil(snapshot.image_cooldown_remaining - age));
-  return <span>全站未完成任务：{snapshot.global.active + snapshot.global.waiting} · 图片并发上限：{snapshot.global.concurrency}
+  return <span>全站：处理中 {snapshot.image_queue.active} · 排队 {snapshot.image_queue.queued} · 待提交 {snapshot.image_queue.ready} · 并发上限 {snapshot.image_queue.capacity}
     {cooldown > 0 && <> · 冷却约 {cooldown} 秒</>}</span>;
 }

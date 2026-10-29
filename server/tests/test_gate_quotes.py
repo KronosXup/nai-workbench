@@ -7,10 +7,10 @@ import httpx
 import pytest
 from PIL import Image
 
-from app.adapters import NaiAdapter
+from app.adapters import AdapterError, NaiAdapter, QUEUE_ERRORS, QUEUE_REQUEST_HEADER, QUEUE_TICKET_HEADER
 from app.config import Settings
 from app.gate_bridge import create_app
-from test_gate_bridge import quote_metadata, quote_result, task
+from test_gate_bridge import inpaint_images, quote_metadata, quote_result, task
 
 
 def test_bridge_displays_gate_price_without_recalculating():
@@ -185,4 +185,88 @@ def test_adapter_sends_cost_ceiling_only_to_gate(gate_mode):
         if gate_mode:
             assert sent[0]['cost_limit'] == item['cost_limit']
         assert 'vibe_encoding_cost_limit' not in sent[0]['parameters']
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('gate_mode', [True, False])
+@pytest.mark.parametrize('operation,stream', [('generate', False), ('generate', True), ('img2img', False),
+    ('inpaint', False), ('upscale', False), ('augment', False), ('encode_vibe', False)])
+def test_adapter_forwards_queue_headers_only_to_gate(gate_mode, operation, stream):
+    image, mask = inpaint_images((64, 64))
+    queue = {'ticket_id': '11111111-1111-4111-8111-111111111111',
+             'request_id': '22222222-2222-4222-8222-222222222222', 'submitted': False}
+    sent = []
+    async def upstream(request):
+        sent.append(request)
+        if operation == 'encode_vibe':
+            return httpx.Response(200, json={'encoding': 'ZW5jb2RlZA=='})
+        if stream:
+            return httpx.Response(200, text='event: final\ndata: ' + json.dumps({'image': image}) + '\n\n',
+                                  headers={'content-type': 'text/event-stream'})
+        import base64
+        return httpx.Response(200, content=base64.b64decode(image), headers={'content-type': 'image/png'})
+    async def run():
+        adapter = NaiAdapter(Settings(nai_base_url='http://fixture', nai_token='fixture'), gate_mode=gate_mode)
+        await adapter.client.aclose()
+        adapter.client = httpx.AsyncClient(base_url='http://fixture', transport=httpx.MockTransport(upstream))
+        item = task()
+        item.update(operation=operation, _gate_queue=queue)
+        item['parameters'].update(width=64, height=64, stream=stream)
+        if operation != 'generate':
+            item['parameters']['image'] = image
+        if operation == 'inpaint':
+            item['parameters']['mask'] = mask
+        if operation == 'augment':
+            item['parameters']['req_type'] = 'lineart'
+        try:
+            await adapter.execute(item)
+        finally:
+            await adapter.close()
+        assert len(sent) == 1
+        for header, key in ((QUEUE_TICKET_HEADER, 'ticket_id'), (QUEUE_REQUEST_HEADER, 'request_id')):
+            assert sent[0].headers.get(header) == (queue[key] if gate_mode else None)
+        payload = json.loads(sent[0].content)
+        assert not {'_gate_queue', 'ticket_id', 'request_id'}.intersection(payload)
+        assert not {'_gate_queue', 'ticket_id', 'request_id'}.intersection(payload.get('parameters', {}))
+        assert queue['submitted'] is gate_mode
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('code', list(QUEUE_ERRORS))
+def test_adapter_preserves_known_queue_errors_without_echoing_body(code):
+    status = QUEUE_ERRORS[code][0]
+    async def upstream(request):
+        return httpx.Response(status, json={'error': {'code': code, 'message': 'private input must not be echoed'}})
+    async def run():
+        adapter = NaiAdapter(Settings(nai_base_url='http://fixture', nai_token='fixture'), gate_mode=True)
+        await adapter.client.aclose()
+        adapter.client = httpx.AsyncClient(base_url='http://fixture', transport=httpx.MockTransport(upstream))
+        try:
+            with pytest.raises(AdapterError) as caught:
+                await adapter.execute(task())
+            error = caught.value
+            assert error.code == code and 'private input' not in error.message
+            if code in {'queue_ticket_active', 'queue_ticket_used'}:
+                assert error.uncertain and not error.retryable
+        finally:
+            await adapter.close()
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('failure', [httpx.ConnectError, httpx.ConnectTimeout])
+def test_adapter_failed_connection_leaves_ticket_available_for_cleanup(failure):
+    queue = {'ticket_id': '11111111-1111-4111-8111-111111111111',
+             'request_id': '22222222-2222-4222-8222-222222222222', 'submitted': False}
+    async def upstream(request):
+        raise failure('offline connection failure', request=request)
+    async def run():
+        adapter = NaiAdapter(Settings(nai_base_url='http://fixture', nai_token='fixture'), gate_mode=True)
+        await adapter.client.aclose()
+        adapter.client = httpx.AsyncClient(base_url='http://fixture', transport=httpx.MockTransport(upstream))
+        try:
+            with pytest.raises(AdapterError) as caught:
+                await adapter.execute({**task(), '_gate_queue': queue})
+            assert not caught.value.uncertain and not queue['submitted']
+        finally:
+            await adapter.close()
     asyncio.run(run())

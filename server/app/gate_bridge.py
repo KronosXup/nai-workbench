@@ -11,14 +11,17 @@ import math
 import os
 import re
 import time
-from collections import OrderedDict, deque
+from collections import Counter, OrderedDict, deque
 from pathlib import Path
+from uuid import UUID
 
+import anyio
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from .adapters import AdapterError, NaiAdapter
+from .adapters import (AdapterError, NaiAdapter, QUEUE_ERRORS, QUEUE_REQUEST_HEADER,
+                       QUEUE_TICKET_HEADER, queue_rejection)
 from .config import Settings
 from .model_policy import request_model_for_operation
 from .task_validation import validate_task
@@ -50,6 +53,26 @@ GATE_IDENTITY_FAILURE_CACHE_TTL_SECONDS = 2
 GATE_IDENTITY_CACHE_MAX_ENTRIES = 256
 GATE_IDENTITY_LOOKUP_MAX_CONCURRENCY = 4
 GATE_IDENTITY_LOOKUP_RATE_PER_WINDOW = 240
+QUEUE_OPERATIONS = {'generate-image', 'upscale', 'augment-image', 'encode-vibe'}
+QUEUE_STATES = {'queued', 'ready', 'active', 'finished', 'cancelled', 'expired'}
+
+
+def _queue_uuid(value):
+    if not isinstance(value, str) or len(value) != 36:
+        raise ValueError('invalid queue UUID')
+    return str(UUID(value))
+
+
+def _queue_failure(code):
+    status, message, _, _ = QUEUE_ERRORS[code]
+    return status, {'detail': message, 'error': {'status': status, 'message': message, 'code': code}, 'code': code}
+
+
+def _queue_execution_failure(code):
+    status, payload = _queue_failure(code)
+    error = queue_rejection(payload)
+    return JSONResponse(dict(type='error', code=code, message=error.message, retryable=error.retryable,
+                             retry_after=error.retry_after, uncertain=error.uncertain), status_code=status)
 
 
 def _security_now():
@@ -77,14 +100,22 @@ def _queue_status_payload(raw):
     cooldown = raw.get('image_cooldown_remaining')
     if type(cooldown) not in (int, float) or not math.isfinite(cooldown) or cooldown < 0:
         raise ValueError('invalid queue cooldown')
-    return {'global': counts, 'image_cooldown_remaining': cooldown}
+    result = {'global': counts, 'image_cooldown_remaining': cooldown}
+    if 'image_queue' in raw:
+        image_queue = raw['image_queue']
+        names = ('queued', 'ready', 'active', 'total', 'capacity')
+        if (not isinstance(image_queue, dict)
+                or any(type(image_queue.get(name)) is not int or image_queue[name] < 0 for name in names)):
+            raise ValueError('invalid image queue snapshot')
+        result['image_queue'] = {name: image_queue[name] for name in names}
+    return result
 
 
 def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
     gate_url = (gate_url or os.environ.get('WORKBENCH_GATE_URL', 'http://nai-gate:8000')).rstrip('/')
     static = Path(os.environ.get('WORKBENCH_STATIC_DIR', Path(__file__).resolve().parents[2]/'client/dist')).resolve()
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-    active = set()
+    active = Counter()
     # Shared across Keys in this app only; the public snapshot never gates tasks.
     queue_status_lock = asyncio.Lock()
     queue_status_cache = {'expires_at': 0.0, 'data': None, 'failed': False}
@@ -114,6 +145,86 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
         if not raw.startswith('Bearer ') or not 1 <= len(raw[7:]) <= 512:
             raise HTTPException(401, '请填写 Gate 分配的 Key')
         return raw[7:]
+
+    async def gate_queue(method, path, token, payload=None):
+        try:
+            async with httpx.AsyncClient(base_url=gate_url, timeout=5, follow_redirects=False,
+                                        trust_env=False, transport=transport) as client:
+                async with client.stream(method, '/v1/image/queue' + path, json=payload,
+                                         headers={'Authorization': 'Bearer ' + token}) as response:
+                    raw = bytearray()
+                    async for chunk in response.aiter_bytes(4096):
+                        if len(raw) + len(chunk) > 8192:
+                            return _queue_failure('queue_unavailable')
+                        raw.extend(chunk)
+                    status = response.status_code
+            value = json.loads(raw)
+        except (httpx.HTTPError, ValueError, RecursionError):
+            return _queue_failure('queue_unavailable')
+        if status not in (200, 201):
+            error = queue_rejection(value)
+            if error:
+                return _queue_failure(error.code)
+            if status in (401, 403):
+                return status, {'detail': 'Key 无效或已更换' if status == 401 else 'Key 已禁用或过期'}
+            return _queue_failure('queue_unavailable')
+        try:
+            if not isinstance(value, dict) or value.get('state') not in QUEUE_STATES or value.get('operation') not in QUEUE_OPERATIONS:
+                raise ValueError('invalid queue ticket')
+            ticket_id, request_id = _queue_uuid(value.get('ticket_id')), _queue_uuid(value.get('request_id'))
+            if (type(value.get('position')) is not int or value['position'] < 0
+                    or any(type(value.get(name)) not in (int, float) or not math.isfinite(value[name]) or value[name] < 0
+                           for name in ('expires_in', 'poll_after'))):
+                raise ValueError('invalid queue ticket timing')
+        except (ValueError, TypeError, AttributeError, OverflowError):
+            return _queue_failure('queue_unavailable')
+        return status, {**{name: value[name] for name in ('operation', 'state', 'position', 'expires_in', 'poll_after')},
+                        'ticket_id': ticket_id, 'request_id': request_id}
+
+    async def cancel_unsubmitted(queue, token):
+        if queue is not None and not queue['submitted']:
+            with anyio.CancelScope(shield=True):
+                with anyio.move_on_after(3):
+                    await gate_queue('DELETE', '/' + queue['ticket_id'], token)
+
+    @app.post('/api/image-queue')
+    async def create_queue_ticket(request: Request):
+        token = credential(request)
+        try:
+            payload = json.loads(await quote_task_bytes(request, label='排队'))
+            if (not isinstance(payload, dict) or not {'request_id', 'operation'} <= set(payload)
+                    or set(payload) - {'request_id', 'operation', 'requires_anlas'}
+                    or payload['operation'] not in QUEUE_OPERATIONS
+                    or type(payload.get('requires_anlas', False)) is not bool):
+                raise ValueError('invalid queue request')
+            payload['request_id'] = _queue_uuid(payload['request_id'])
+        except (ValueError, TypeError, RecursionError):
+            status, value = _queue_failure('queue_invalid_request')
+        else:
+            status, value = await gate_queue('POST', '', token, payload)
+        return JSONResponse(value, status_code=status)
+
+    @app.api_route('/api/image-queue/{ticket_id}', methods=['GET', 'DELETE'])
+    async def queue_ticket(request: Request, ticket_id: str):
+        token = credential(request)
+        try:
+            ticket_id = _queue_uuid(ticket_id)
+        except ValueError:
+            status, value = _queue_failure('queue_invalid_request')
+        else:
+            status, value = await gate_queue(request.method, '/' + ticket_id, token)
+        return JSONResponse(value, status_code=status)
+
+    @app.post('/api/image-queue/{ticket_id}/heartbeat')
+    async def heartbeat_queue_ticket(request: Request, ticket_id: str):
+        token = credential(request)
+        try:
+            ticket_id = _queue_uuid(ticket_id)
+        except ValueError:
+            status, value = _queue_failure('queue_invalid_request')
+        else:
+            status, value = await gate_queue('POST', '/' + ticket_id + '/heartbeat', token)
+        return JSONResponse(value, status_code=status)
 
     async def gate_get(path, token, *, timeout=15):
         async with httpx.AsyncClient(base_url=gate_url, timeout=timeout, follow_redirects=False, trust_env=False, transport=transport) as client:
@@ -270,7 +381,7 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
             while len(quote_key_events) > GATE_IDENTITY_CACHE_MAX_ENTRIES:
                 quote_key_events.popitem(last=False)
 
-    async def quote_task_bytes(request):
+    async def quote_task_bytes(request, *, label='报价'):
         declared_length = request.headers.get('content-length')
         if declared_length is not None:
             try:
@@ -280,16 +391,16 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
             if declared_length < 0:
                 raise HTTPException(400, 'Content-Length 无效')
             if declared_length > QUOTE_MAX_BODY_BYTES:
-                raise HTTPException(413, '报价请求体超过 4 KiB')
+                raise HTTPException(413, label + '请求体超过 4 KiB')
         raw = bytearray()
         try:
             async with asyncio.timeout(QUOTE_READ_TIMEOUT_SECONDS):
                 async for chunk in request.stream():
                     if len(raw) + len(chunk) > QUOTE_MAX_BODY_BYTES:
-                        raise HTTPException(413, '报价请求体超过 4 KiB')
+                        raise HTTPException(413, label + '请求体超过 4 KiB')
                     raw.extend(chunk)
         except TimeoutError:
-            raise HTTPException(408, '读取报价请求超时') from None
+            raise HTTPException(408, '读取' + label + '请求超时') from None
         return raw
 
     def parse_quote_metadata(raw):
@@ -464,35 +575,65 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
     async def execute(request: Request):
         token = credential(request)
         owner = hashlib.sha256(token.encode()).hexdigest()
+        queue = None
+        ticket_id = request.headers.get(QUEUE_TICKET_HEADER)
+        queue_request_id = request.headers.get(QUEUE_REQUEST_HEADER)
+        if ticket_id is not None or queue_request_id is not None:
+            try:
+                ticket_id, queue_request_id = _queue_uuid(ticket_id), _queue_uuid(queue_request_id)
+            except ValueError:
+                return _queue_execution_failure('queue_invalid_request')
+            status, snapshot = await gate_queue('GET', '/' + ticket_id, token)
+            if status not in (200, 201):
+                error = queue_rejection(snapshot)
+                return _queue_execution_failure(error.code) if error else JSONResponse(snapshot, status_code=status)
+            if snapshot['ticket_id'] != ticket_id or snapshot['request_id'] != queue_request_id:
+                return _queue_execution_failure('queue_ticket_mismatch')
+            if snapshot['state'] != 'ready':
+                code = {'queued': 'queue_ticket_not_ready', 'active': 'queue_ticket_used',
+                        'finished': 'queue_ticket_used', 'cancelled': 'queue_ticket_cancelled',
+                        'expired': 'queue_ticket_expired'}[snapshot['state']]
+                return _queue_execution_failure(code)
+            queue = {**snapshot, 'submitted': False}
+
         def busy_error():
             reason = 'key_busy' if owner in active else 'service_busy'
             message = '同一 Key 有任务正在执行，请等待完成后再提交' if reason == 'key_busy' else '服务当前繁忙，请稍后重试'
             return dict(type='error', code='gate_busy', reason=reason, retryable=True, retry_after=15,
                         uncertain=False, message=message)
 
-        if owner in active or len(active) >= 8 or execute_prep_slots.locked():
+        if queue is None and (owner in active or sum(active.values()) >= 8 or execute_prep_slots.locked()):
             return JSONResponse(busy_error(), status_code=429)
-        await execute_prep_slots.acquire()
         try:
-            # A failed Key is cached briefly and distinct lookups are bounded.
-            # Gate checks the Key again when the actual image request arrives.
-            try:
-                await gate_username(token)
-            except HTTPException as exc:
-                if exc.status_code in (429, 503):
-                    wait = 60 if exc.status_code == 429 else 15
-                    return JSONResponse({**busy_error(), 'retry_after': wait}, status_code=429)
-                raise
-            task = await task_body(request)
-        finally:
-            execute_prep_slots.release()
-        if owner in active or len(active) >= 8:
+            async with execute_prep_slots:
+                if queue is None:
+                    # Unticketed clients retain the existing identity cache and admission.
+                    try:
+                        await gate_username(token)
+                    except HTTPException as exc:
+                        if exc.status_code in (429, 503):
+                            wait = 60 if exc.status_code == 429 else 15
+                            return JSONResponse({**busy_error(), 'retry_after': wait}, status_code=429)
+                        raise
+                task = await task_body(request)
+                if queue is not None:
+                    operation = {'generate': 'generate-image', 'img2img': 'generate-image',
+                                 'inpaint': 'generate-image', 'upscale': 'upscale',
+                                 'augment': 'augment-image', 'encode_vibe': 'encode-vibe'}[task['operation']]
+                    if queue['operation'] != operation:
+                        await cancel_unsubmitted(queue, token)
+                        return _queue_execution_failure('queue_ticket_mismatch')
+                    task['_gate_queue'] = queue
+        except BaseException:
+            await cancel_unsubmitted(queue, token)
+            raise
+        if queue is None and (owner in active or sum(active.values()) >= 8):
             return JSONResponse(busy_error(), status_code=429)
         async def events():
-            if owner in active or len(active) >= 8:
+            if queue is None and (owner in active or sum(active.values()) >= 8):
                 yield json.dumps(busy_error(), ensure_ascii=False)+'\n'
                 return
-            active.add(owner)
+            active[owner] += 1
             adapter = None
             worker = None
             preview_received = False
@@ -526,7 +667,7 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
                         filename=a.filename, metadata=a.metadata, sha256=hashlib.sha256(a.data).hexdigest()) for a in artifacts])
                 except AdapterError as error:
                     uncertain = error.uncertain or preview_received
-                    retryable = error.retryable and not uncertain and error.code in {'gate_rpm', 'gate_cooldown', 'gate_busy'}
+                    retryable = error.retryable and not uncertain and error.code in ({'gate_rpm', 'gate_cooldown', 'gate_busy'} | QUEUE_ERRORS.keys())
                     terminal = dict(type='error', code=error.code, retryable=retryable,
                                          retry_after=error.retry_after, uncertain=uncertain,
                                          message=error.message.replace('NAI', 'Gate') if not (error.retryable and uncertain)
@@ -569,7 +710,10 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
                         if adapter is not None:
                             await adapter.close()
                     finally:
-                        active.discard(owner)
+                        active[owner] -= 1
+                        if not active[owner]:
+                            del active[owner]
+                        await cancel_unsubmitted(queue, token)
         return StreamingResponse(events(), media_type='application/x-ndjson')
 
     @app.get('/{path:path}')
