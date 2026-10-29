@@ -1184,6 +1184,21 @@ for (const [name, boundary, argument] of [
   }]);
 }
 
+checks.push(['Variations of Max Enhanced images do not repeat Enhance or Max', () => {
+  const row={job:{operation:'img2img',model:'nai-diffusion-5-full',prompt:'fixture',negative_prompt:'',
+    parameters:{...structuredClone(defaultParameters),width:512,height:512,enhance:true,upscaled_enhance:true}}};
+  const image={data:'finished-max-image',width:1024,height:1024};
+  const {quoteRequest}=actualModule('quote.ts');
+  for(const task of variationTasks(row,image,false)) {
+    assert.equal(Object.hasOwn(task.parameters,'enhance'),false);
+    assert.equal(Object.hasOwn(task.parameters,'upscaled_enhance'),false);
+    assert.deepEqual([task.parameters.width,task.parameters.height],[1024,1024]);
+    assert.equal(task.parameters.image,image.data);
+    assert.equal(quoteRequest(task).parameters.upscaled_enhance,false);
+  }
+  assert.equal(row.job.parameters.upscaled_enhance,true,'the saved source request stays intact');
+}]);
+
 checks.push(['Generation quotes and submissions snap dimensions to the official grid', async () => {
   for(const model of ['nai-diffusion-4-5-full','nai-diffusion-5-full','nai-diffusion-5-curated','nai-diffusion-3']) {
     for(const operation of ['generate','img2img','inpaint']) {

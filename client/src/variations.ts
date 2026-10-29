@@ -18,7 +18,7 @@ export function variationTasks(row: LocalImage, image: ImportedImage, stream: bo
     strength: .8, noise: .1, n_samples: 1, stream,
   });
   // Use the finished image, never its old mask, crop or editable canvas project.
-  for (const key of ['mask', 'img2img', 'upscale', 'canvas_project_id', 'vibe_pending_indices']) delete parameters[key];
+  for (const key of ['mask', 'img2img', 'upscale', 'enhance', 'upscaled_enhance', 'canvas_project_id', 'vibe_pending_indices']) delete parameters[key];
   const seed = crypto.getRandomValues(new Uint32Array(1))[0];
   return Array.from({length: 3}, (_, index) => ({
     request_id: uuid(), operation: 'img2img', model,
