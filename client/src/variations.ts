@@ -1,7 +1,7 @@
 import type { ImportedImage } from './imageImport';
 import type { LocalImage, Task } from './types';
 import { defaultParameters, uuid } from './types';
-import { generationParameters } from './modelSettings';
+import { generationDimension, generationParameters } from './modelSettings';
 
 export function variationTasks(row: LocalImage, image: ImportedImage, stream: boolean): Task[] {
   if (!['generate', 'img2img', 'inpaint'].includes(row.job.operation))
@@ -14,7 +14,7 @@ export function variationTasks(row: LocalImage, image: ImportedImage, stream: bo
     ...structuredClone(defaultParameters), ...structuredClone(original.parameters),
     ...metadata?.settings,
     character_prompts: structuredClone(metadata?.characters ?? original.parameters.character_prompts),
-    width: image.width, height: image.height, image: image.data,
+    width: generationDimension(image.width), height: generationDimension(image.height), image: image.data,
     strength: .8, noise: .1, n_samples: 1, stream,
   });
   // Use the finished image, never its old mask, crop or editable canvas project.

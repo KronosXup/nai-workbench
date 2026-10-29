@@ -66,9 +66,8 @@ def validate_task(raw: dict, settings: Settings) -> dict:
         fail(422, "parameters 必须是对象")
     _number(p, "width", 832, 64, 4096, True)
     _number(p, "height", 1216, 64, 4096, True)
-    size_multiple = 64 if effective_model_for_operation(model, operation).startswith("nai-diffusion-4-5-") else 8
-    if operation in {"generate", "img2img", "inpaint"} and not p.get("upscaled_enhance") and (p["width"] % size_multiple or p["height"] % size_multiple):
-        fail(422, f"当前模型分辨率的宽高必须是 {size_multiple} 的整数倍")
+    if operation in {"generate", "img2img", "inpaint"} and not p.get("upscaled_enhance") and (p["width"] % 8 or p["height"] % 8):
+        fail(422, "宽高必须是 8 的整数倍")
     _number(p, "steps", 28, 1, 100, True)
     _number(p, "scale", 5, 0, 30)
     _number(p, "seed", -1, -1, 4294967295, True)

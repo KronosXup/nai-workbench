@@ -68,7 +68,7 @@ import { directorFromJob, directorMatchesJob, directorSourceIssue, migrateDirect
 import type { DirectorDraft, DirectorSource } from "./director";
 import WorkspaceHeader, { legacyFreeLabel } from "./WorkspaceHeader";
 import { composePrompts } from "./promptPresets";
-import { generationParameters, modelGenerationDefaults, effortFamily } from "./modelSettings";
+import { generationDimension, generationParameters, modelGenerationDefaults, effortFamily } from "./modelSettings";
 import TokenMeter from "./TokenMeter";
 import type { TagSuggestion } from "./TagInput";
 
@@ -976,7 +976,10 @@ export default function App() {
     operation = draft.operation,
   ): Task {
     const effectiveModel = effectiveModelForOperation(draft.model, operation);
-    const p = generationParameters(effectiveModel, draft.parameters);
+    const input = usesGenerationSettings(operation) ? { ...draft.parameters,
+      width: generationDimension(draft.parameters.width), height: generationDimension(draft.parameters.height),
+    } : draft.parameters;
+    const p = generationParameters(effectiveModel, input);
     delete p.enhance;
     delete p.upscaled_enhance;
     p.stream = draft.parameters.stream === true;

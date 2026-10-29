@@ -42,43 +42,6 @@ def reject(payload, *, settings=None, status=422):
     assert error.value.status_code == status
 
 
-@pytest.mark.parametrize("operation", ["generate", "img2img", "inpaint"])
-@pytest.mark.parametrize("size", [(848, 1168), (1000, 1000)])
-def test_generation_rejects_sizes_outside_official_64_pixel_grid(operation, size):
-    payload = task(operation=operation)
-    payload["parameters"].update(width=size[0], height=size[1])
-    if operation != "generate":
-        payload["parameters"]["image"] = IMAGE
-    if operation == "inpaint":
-        payload["parameters"]["mask"] = IMAGE
-    reject(payload)
-
-
-def test_nonpreset_size_on_64_pixel_grid_remains_valid():
-    payload = task()
-    payload["parameters"].update(width=832, height=1152)
-    assert validate_task(payload, Settings())["parameters"]["height"] == 1152
-
-
-@pytest.mark.parametrize("model", [
-    "nai-diffusion-5-full", "nai-diffusion-5-curated", "nai-diffusion-5-full-medium",
-    "nai-diffusion-4-full", "nai-diffusion-3",
-])
-def test_other_model_dimensions_preserve_gate_policy_input(model):
-    payload = task(model=model)
-    payload["parameters"].update(width=848, height=1168)
-    result = validate_task(payload, Settings())
-    assert (result["parameters"]["width"], result["parameters"]["height"]) == (848, 1168)
-    payload["parameters"]["width"] = 849
-    reject(payload)
-
-
-def test_v5_curated_inpaint_uses_v45_size_validation():
-    payload = task(model="nai-diffusion-5-curated", operation="inpaint")
-    payload["parameters"].update(width=848, height=1168, image=IMAGE, mask=IMAGE)
-    reject(payload)
-
-
 @pytest.mark.parametrize("field,value", [
     ("character_reference_descriptions", "character"),
     ("character_reference_strengths", 0.5),

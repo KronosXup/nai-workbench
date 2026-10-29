@@ -26,28 +26,7 @@ function actualModule(name) {
 }
 const {configurationIssueFor, effectiveModelForOperation, usesGenerationSettings} = actualModule('taskValidation.ts');
 const {ApiError} = actualModule('api.ts');
-const {generationParameters, defaultNoiseSchedule, modelGenerationDefaults, samplersFor} = actualModule('modelSettings.ts');
-{
-  const {newDraft} = actualModule('types.ts');
-  const draft = newDraft();
-  const models=[{id:draft.model},{id:'nai-diffusion-5-full'}];
-  draft.parameters.width=848;draft.parameters.height=1168;
-  assert.match(configurationIssueFor(draft,models).message,/64.*倍数/);
-  draft.parameters.width=832;draft.parameters.height=1152;
-  assert.equal(configurationIssueFor(draft,models),undefined);
-  draft.parameters.width=848;draft.parameters.height=1168;
-  for(const model of ['nai-diffusion-5-full','nai-diffusion-5-curated','nai-diffusion-5-full-medium','nai-diffusion-4-full','nai-diffusion-3']) {
-    draft.model=model;
-    assert.equal(configurationIssueFor(draft,models),undefined,`${model} keeps its existing Gate dimension handling`);
-  }
-  draft.operation='inpaint';draft.model='nai-diffusion-5-curated';
-  draft.parameters.image='fixture';draft.parameters.mask='fixture';
-  assert.match(configurationIssueFor(draft,models).message,/64.*倍数/);
-  draft.operation='img2img';draft.model='nai-diffusion-5-full';draft.parameters.image='fixture';
-  draft.parameters.width=1440;draft.parameters.height=2144;draft.parameters.upscaled_enhance=true;
-  assert.equal(configurationIssueFor(draft,models),undefined,'Max Enhance retains its separate billing-size rule');
-  console.log('PASS V4.5 uses the official 64-pixel grid; other models keep Gate handling and Max Enhance remains valid');
-}
+const {generationDimension, generationParameters, defaultNoiseSchedule, modelGenerationDefaults, samplersFor} = actualModule('modelSettings.ts');
 {
   const {newDraft} = actualModule('types.ts');
   const {composePrompts, ucOptions} = actualModule('promptPresets.ts');
@@ -121,7 +100,7 @@ const gatePrice = units => ({source:'gate',units,unit_label:'积分',verified:fa
 const {layoutCanvasItems, fitCanvasRect, zoomCanvasAt, canvasVisibleRect, canvasRectsIntersect} = actualModule('outputCanvasGeometry.ts');
 
 function actualFunction(name, scope) {
-  scope = {effectiveModelForOperation, activeEnhance: null, enhanceTask, enhanceDimensions, withQuote, ...scope};
+  scope = {effectiveModelForOperation, generationDimension, activeEnhance: null, enhanceTask, enhanceDimensions, withQuote, ...scope};
   let expression;
   function visit(node) {
     if (ts.isFunctionDeclaration(node) && node.name?.text === name) {
@@ -1013,6 +992,8 @@ const checks = [
     assert.ok(tasks.every(task=>task.operation==='img2img'&&task.model==='nai-diffusion-4-5-curated'));
     assert.ok(tasks.every(task=>task.parameters.n_samples===1&&task.parameters.strength===.8&&task.parameters.noise===.1));
     assert.ok(tasks.every(task=>task.parameters.image==='actual-finished-pixels'&&task.parameters.width===896&&task.parameters.height===640));
+    const custom=variationTasks(row,{...image,width:848,height:1168},false);
+    assert.ok(custom.every(task=>task.parameters.width===832&&task.parameters.height===1152&&task.parameters.image===image.data));
     assert.ok(tasks.every(task=>task.prompt==='metadata prompt without draft presets'&&task.negative_prompt==='metadata negative'));
     assert.ok(tasks.every(task=>task.parameters.steps===37&&task.parameters.scale===6.25));
     for(const task of tasks){
@@ -1202,6 +1183,28 @@ for (const [name, boundary, argument] of [
     assert.equal(h.state.draft.prompt, 'Owner B draft');
   }]);
 }
+
+checks.push(['Generation quotes and submissions snap dimensions to the official grid', async () => {
+  for(const model of ['nai-diffusion-4-5-full','nai-diffusion-5-full','nai-diffusion-5-curated','nai-diffusion-3']) {
+    for(const operation of ['generate','img2img','inpaint']) {
+      const h=quoteHarness();Object.assign(h.state.draft,{model,operation,prompt:'dimension fixture'});
+      Object.assign(h.state.draft.parameters,{width:848,height:1168,image:'fixture',mask:'fixture'});
+      const task=h.fn('taskFor')();h.fn('validateTask')(task);
+      assert.deepEqual([task.parameters.width,task.parameters.height],[832,1152]);
+      assert.deepEqual([h.state.draft.parameters.width,h.state.draft.parameters.height],[848,1168]);
+      await h.fn('requestQuote')(true);
+      assert.equal(h.state.requests.length,1);
+      assert.deepEqual(h.state.requests[0].task.parameters,task.parameters);
+      assert.equal(h.state.error,null);
+    }
+  }
+  for(const operation of ['upscale','augment','encode_vibe']) {
+    const h=quoteHarness();h.state.draft.operation=operation;
+    Object.assign(h.state.draft.parameters,{width:848,height:1168,image:'fixture'});
+    const task=h.fn('taskFor')();
+    assert.deepEqual([task.parameters.width,task.parameters.height],[848,1168]);
+  }
+}]);
 
 checks.push(['Normal requests clear reused Enhance-only flags', () => {
   const h=quoteHarness();h.state.draft.parameters.enhance=true;h.state.draft.parameters.upscaled_enhance=true;

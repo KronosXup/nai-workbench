@@ -31,6 +31,8 @@ export function varietyScale(width: number, height: number) {
   return Math.sqrt(Math.floor(width / 8) * Math.floor(height / 8) / (104 * 152));
 }
 
+export const generationDimension = (value: number) => Math.max(64, Math.round(value / 64) * 64);
+
 // Imported values stay in the draft, but unsupported values must not travel into requests.
 export function generationParameters(model: string, input: Parameters): Parameters {
   const p = structuredClone(input);

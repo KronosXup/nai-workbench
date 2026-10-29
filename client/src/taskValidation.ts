@@ -1,5 +1,5 @@
 import type { Capabilities, Operation, Task } from './types';
-import { samplersFor, isMediumModel } from './modelSettings';
+import { samplersFor, isMediumModel, generationDimension } from './modelSettings';
 import { encodingFor } from './vibeFiles';
 import type { VibeFileItem } from './vibeFiles';
 
@@ -25,7 +25,10 @@ export function configurationIssueFor(
   models: Capabilities['models'],
   operations?: Operation[],
 ): ConfigurationIssue | undefined {
-  const { model, operation, parameters: p } = task;
+  const { model, operation } = task;
+  const p = usesGenerationSettings(operation) && !task.parameters.upscaled_enhance ? { ...task.parameters,
+    width: generationDimension(task.parameters.width), height: generationDimension(task.parameters.height),
+  } : task.parameters;
   const effectiveModel = effectiveModelForOperation(model, operation);
   const info = models.find(item => item.id === effectiveModel);
   if (operations && !operations.includes(operation))
@@ -65,8 +68,7 @@ export function configurationIssueFor(
     return { message: '这个操作需要源图片，请先导入图片。', target: 'references' };
   if (operation === 'inpaint' && !p.mask)
     return { message: '请先绘制或上传重绘蒙版。', target: 'references' };
-  const sizeMultiple = effectiveModel.startsWith('nai-diffusion-4-5-') ? 64 : 8;
   if (usesGenerationSettings(operation) && (!Number.isInteger(p.width) || !Number.isInteger(p.height) || p.width < 64 || p.height < 64 ||
-      (!p.upscaled_enhance && (p.width % sizeMultiple || p.height % sizeMultiple))))
-    return { message: `宽高至少为 64；当前模型分辨率需为 ${sizeMultiple} 的倍数。`, target: 'settings' };
+      (!p.upscaled_enhance && (p.width % 8 || p.height % 8))))
+    return { message: '宽高至少为 64，且分辨率需为 8 的倍数。', target: 'settings' };
 }

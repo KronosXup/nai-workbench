@@ -23,7 +23,7 @@ import { labels } from "./types";
 import { hasTransparentBackground, setTransparentBackground } from "./promptTags";
 import type { ConfigurationIssue, QuoteError } from "./taskValidation";
 import { effectiveModelForOperation, usesGenerationSettings } from "./taskValidation";
-import { samplersFor, defaultNoiseSchedule, noiseSchedulesFor, V5_MEDIUM, isMediumModel, effortFamily } from "./modelSettings";
+import { samplersFor, defaultNoiseSchedule, noiseSchedulesFor, V5_MEDIUM, isMediumModel, effortFamily, generationDimension } from "./modelSettings";
 import { ucOptions, presetLabels, hasFurryTag, removeFurryTag, mapUcPreset } from "./promptPresets";
 import PromptChunks from "./PromptChunks";
 import AdvancedSettings from "./AdvancedSettings";
@@ -320,6 +320,7 @@ export default function OfficialWorkspace(p: Props) {
     max: number,
     step = 1,
     disabled = false,
+    onBlur?: () => void,
   ) => (
     <input
       aria-label={label}
@@ -329,6 +330,7 @@ export default function OfficialWorkspace(p: Props) {
       max={max}
       step={step}
       disabled={disabled}
+      onBlur={onBlur}
       onChange={(e) => {
         if (e.target.value !== "" && Number.isFinite(+e.target.value))
           action(+e.target.value);
@@ -529,6 +531,8 @@ export default function OfficialWorkspace(p: Props) {
                   64,
                   4096,
                   64,
+                  false,
+                  () => p.setParam("width", generationDimension(params.width)),
                 )}
                 <button
                   aria-label="交换宽高"
@@ -543,6 +547,8 @@ export default function OfficialWorkspace(p: Props) {
                   64,
                   4096,
                   64,
+                  false,
+                  () => p.setParam("height", generationDimension(params.height)),
                 )}
               </div>
             </div>
