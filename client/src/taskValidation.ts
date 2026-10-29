@@ -66,6 +66,6 @@ export function configurationIssueFor(
   if (operation === 'inpaint' && !p.mask)
     return { message: '请先绘制或上传重绘蒙版。', target: 'references' };
   if (usesGenerationSettings(operation) && (!Number.isInteger(p.width) || !Number.isInteger(p.height) || p.width < 64 || p.height < 64 ||
-      (usesGenerationSettings(operation) && (p.width % 8 || p.height % 8))))
-    return { message: '宽高至少为 64；生成图片时还需为 8 的倍数。', target: 'settings' };
+      (!p.upscaled_enhance && (p.width % 64 || p.height % 64))))
+    return { message: '宽高至少为 64；普通生成分辨率需为 64 的倍数。', target: 'settings' };
 }

@@ -29,6 +29,19 @@ const {ApiError} = actualModule('api.ts');
 const {generationParameters, defaultNoiseSchedule, modelGenerationDefaults, samplersFor} = actualModule('modelSettings.ts');
 {
   const {newDraft} = actualModule('types.ts');
+  const draft = newDraft();
+  const models=[{id:draft.model},{id:'nai-diffusion-5-full'}];
+  draft.parameters.width=848;draft.parameters.height=1168;
+  assert.match(configurationIssueFor(draft,models).message,/64.*倍数/);
+  draft.parameters.width=832;draft.parameters.height=1152;
+  assert.equal(configurationIssueFor(draft,models),undefined);
+  draft.operation='img2img';draft.model='nai-diffusion-5-full';draft.parameters.image='fixture';
+  draft.parameters.width=1440;draft.parameters.height=2144;draft.parameters.upscaled_enhance=true;
+  assert.equal(configurationIssueFor(draft,models),undefined,'Max Enhance retains its separate billing-size rule');
+  console.log('PASS ordinary generation enforces the official 64-pixel grid without blocking nonpreset sizes or Max Enhance');
+}
+{
+  const {newDraft} = actualModule('types.ts');
   const {composePrompts, ucOptions} = actualModule('promptPresets.ts');
   const draft = newDraft();
   draft.model = 'nai-diffusion-5-full'; draft.negative = 'keep my negative';

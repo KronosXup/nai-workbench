@@ -19,6 +19,8 @@ import anyio
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from starlette.middleware.gzip import GZipMiddleware
+from starlette.staticfiles import StaticFiles
 
 from .adapters import (AdapterError, NaiAdapter, QUEUE_ERRORS, QUEUE_REQUEST_HEADER,
                        QUEUE_TICKET_HEADER, queue_rejection)
@@ -134,7 +136,14 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
     @app.middleware('http')
     async def headers(request, call_next):
         response = await call_next(request)
-        response.headers.update({'Cache-Control':'no-store', 'X-Content-Type-Options':'nosniff',
+        path = request.url.path
+        cache = 'no-store'
+        if response.status_code in (200, 304):
+            if path.startswith('/assets/'):
+                cache = 'public, max-age=31536000, immutable'
+            elif path.startswith(('/tokenizers/', '/fonts/')):
+                cache = 'public, max-age=0, must-revalidate'
+        response.headers.update({'Cache-Control':cache, 'X-Content-Type-Options':'nosniff',
                                  'Referrer-Policy':'no-referrer',
                                  'Content-Security-Policy':"frame-ancestors 'none'",
                                  'X-Frame-Options':'DENY'})
@@ -438,6 +447,8 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
         if operation == 'generate-image':
             if params.get('n_samples', 1) != 1:
                 raise HTTPException(422, '每个工作台任务只能生成一张图片')
+            if not params.get('upscaled_enhance') and (params.get('width', 832) % 64 or params.get('height', 1216) % 64):
+                raise HTTPException(422, '普通生成分辨率的宽高必须是 64 的整数倍')
             query['model'] = request_model_for_operation(model, params.get('mode', 'generate'))
         elif operation == 'upscale':
             query['model'] = 'nai-diffusion-5-curated'
@@ -715,6 +726,11 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
                             del active[owner]
                         await cancel_unsubmitted(queue, token)
         return StreamingResponse(events(), media_type='application/x-ndjson')
+
+    for group in ('assets', 'tokenizers', 'fonts'):
+        directory = static / group
+        if directory.is_dir():
+            app.mount('/' + group, GZipMiddleware(StaticFiles(directory=directory), minimum_size=1024, compresslevel=5), name=group)
 
     @app.get('/{path:path}')
     async def files(path: str):

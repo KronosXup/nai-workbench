@@ -115,6 +115,7 @@ def test_max_quote_keeps_source_size_in_canonical_payload():
 @pytest.mark.parametrize('extra', [
     {'image': 'eA=='}, {'mask': 'eA=='}, {'prompt': 'text'}, {'sampler': 'k_euler'},
     {'scale': 5}, {'width': {}}, {'sm': 1}, {'strength': float('nan')}, {'n_samples': 2},
+    {'width': 848, 'height': 1168},
 ])
 def test_quote_rejects_nonpricing_fields_and_invalid_metadata(extra):
     async def gate(request):

@@ -42,6 +42,24 @@ def reject(payload, *, settings=None, status=422):
     assert error.value.status_code == status
 
 
+@pytest.mark.parametrize("operation", ["generate", "img2img", "inpaint"])
+@pytest.mark.parametrize("size", [(848, 1168), (1000, 1000)])
+def test_generation_rejects_sizes_outside_official_64_pixel_grid(operation, size):
+    payload = task(operation=operation)
+    payload["parameters"].update(width=size[0], height=size[1])
+    if operation != "generate":
+        payload["parameters"]["image"] = IMAGE
+    if operation == "inpaint":
+        payload["parameters"]["mask"] = IMAGE
+    reject(payload)
+
+
+def test_nonpreset_size_on_64_pixel_grid_remains_valid():
+    payload = task()
+    payload["parameters"].update(width=832, height=1152)
+    assert validate_task(payload, Settings())["parameters"]["height"] == 1152
+
+
 @pytest.mark.parametrize("field,value", [
     ("character_reference_descriptions", "character"),
     ("character_reference_strengths", 0.5),

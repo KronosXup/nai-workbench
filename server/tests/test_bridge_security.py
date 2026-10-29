@@ -36,6 +36,32 @@ def quote_task():
     }
 
 
+def test_public_static_assets_are_compressed_and_revalidated_without_caching_api(monkeypatch, tmp_path):
+    for name in ('assets', 'tokenizers'):
+        (tmp_path / name).mkdir()
+    content = json.dumps({'vocabulary': ['offline-token'] * 2000})
+    (tmp_path / 'tokenizers' / 't5.json').write_text(content)
+    (tmp_path / 'assets' / 'app-fixture.js').write_text('export const value=1;')
+    monkeypatch.setenv('WORKBENCH_STATIC_DIR', str(tmp_path))
+
+    async def run():
+        app = create_app('http://gate.fixture', httpx.MockTransport(lambda _: httpx.Response(500)))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+            response = await client.get('/tokenizers/t5.json', headers={'Accept-Encoding': 'gzip'})
+            assert response.text == content
+            assert response.headers['Content-Encoding'] == 'gzip'
+            assert 'must-revalidate' in response.headers['Cache-Control']
+            assert int(response.headers['Content-Length']) < len(content)
+            cached = await client.get('/tokenizers/t5.json', headers={'If-None-Match': response.headers['ETag']})
+            assert cached.status_code == 304 and cached.content == b''
+            asset = await client.get('/assets/app-fixture.js')
+            assert 'immutable' in asset.headers['Cache-Control']
+            health = await client.get('/api/health', headers={'Accept-Encoding': 'gzip'})
+            assert health.headers['Cache-Control'] == 'no-store'
+            assert 'Content-Encoding' not in health.headers
+    asyncio.run(run())
+
+
 def identity_response(request, calls):
     if request.url.path == '/v1/image/quote' and request.method == 'POST':
         return httpx.Response(200, json=quote_result())

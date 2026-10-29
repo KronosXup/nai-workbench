@@ -868,7 +868,7 @@ export default function App() {
     setQuoteError(null);
     quoteVersion.current++;
     if (!api || (page !== 'draw' && page !== 'batch')) return;
-    const timer = setTimeout(() => void requestQuote(true), 450);
+    const timer = setTimeout(() => void requestQuote(true), 200);
     return () => { clearTimeout(timer); quoteController.current?.abort(); };
   }, [
     api,

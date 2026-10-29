@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { memo, useEffect, useId, useMemo, useState } from "react";
 import { countImageTokenSegments, imageTokenizer, imageTokenizerSpec } from "./imageTokenizer";
 import type { Tokenizer } from "@huggingface/tokenizers";
 
@@ -10,7 +10,7 @@ type Props = {
   compact?: boolean;
 };
 
-export default function TokenMeter({ model, label, text, characterTexts = [], compact = false }: Props) {
+function TokenMeter({ model, label, text, characterTexts = [], compact = false }: Props) {
   const tooltipId = useId();
   const spec = imageTokenizerSpec(model);
   const [loaded, setLoaded] = useState<{ kind: string; tokenizer: Tokenizer } | null>(null);
@@ -63,3 +63,10 @@ export default function TokenMeter({ model, label, text, characterTexts = [], co
     {total > spec.limit && <span>超出模型提示词上限，生成时可能截断。</span>}
   </div>;
 }
+
+export default memo(TokenMeter, (previous, next) => {
+  const before = previous.characterTexts ?? [], after = next.characterTexts ?? [];
+  return previous.model === next.model && previous.label === next.label && previous.text === next.text &&
+    Boolean(previous.compact) === Boolean(next.compact) && before.length === after.length &&
+    before.every((value, index) => value === after[index]);
+});
