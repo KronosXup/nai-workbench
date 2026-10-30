@@ -475,7 +475,8 @@ def create_app(gate_url=None, transport=None, adapter_factory=NaiAdapter):
 
     @app.get('/api/health')
     async def health():
-        return {'ok':True, 'mode':'gate', 'queue':'browser', 'server_storage':False}
+        return {'ok':True, 'mode':'gate', 'queue':'browser', 'server_storage':False,
+                'discord_login':bool(os.environ.get('WORKBENCH_AUTH_BRIDGE_SECRET'))}
 
     @app.get('/api/queue-status')
     async def queue_status(request: Request):

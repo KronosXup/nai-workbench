@@ -32,7 +32,7 @@ const helperCode=ts.transpileModule(`const restoreDraftForSession=${restoreExpre
 const restoreDraftForSession=new Function(helperCode+'\nreturn restoreDraftForSession;')();
 
 const savedFetch=globalThis.fetch, requests=[];
-let mode='gate', badHealth=false, networkFailure=false, meStatus=200, capabilitiesStatus=200, meResponse;
+let mode='gate', badHealth=false, networkFailure=false, discordEnabled=false, meStatus=200, capabilitiesStatus=200, meResponse;
 globalThis.fetch=async (url,options={})=>{
   url=new URL(url,'https://workbench.example/workbench/').pathname;
   requests.push({url,headers:options.headers});
@@ -40,7 +40,7 @@ globalThis.fetch=async (url,options={})=>{
     assert.equal(options.headers?.Authorization,undefined,'health detection never receives credentials');
     assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');
     if(networkFailure) throw new TypeError('Controlled network failure');
-    return Response.json({mode},{status:badHealth?503:200});
+    return Response.json({mode,discord_login:discordEnabled},{status:badHealth?503:200});
   }
   if(url==='/workbench/api/me') return meResponse ? meResponse(options) : meStatus===200
     ? Response.json({id:'gate-fixture',name:'fixture',gate_quota:{imageModelScope:'all'}})
@@ -99,6 +99,7 @@ try {
   assert.ok(requests.every(item=>String(item.url).startsWith('/workbench/api/')),'the Gate Key is sent only to same-origin API paths');
   assert.equal(requests.filter(item=>item.headers?.Authorization).length,2);
   assert.equal(good.state.setApi.base,'.');
+  assert.equal(good.state.setDiscordLoginEnabled,false);
   assert.equal(good.session.get('nai-wb-token'),key);
   assert.equal(good.stored.has('nai-wb-remembered-token'),false,'remembering a device is opt-in');
   const owner='https://workbench.example|gate-fixture';
@@ -117,6 +118,11 @@ try {
   assert.equal(good.state.setDraft.director.source,undefined);
   assert.equal(good.state.setDraft.director.prompt,'remember director settings');
   console.log('PASS Gate login validates same-origin health, ignores and clears the old address, and keeps the local identity namespace');
+
+  discordEnabled=true;
+  const configured=harness();await configured.run(key);
+  assert.equal(configured.state.setDiscordLoginEnabled,true,'The existing server bridge configuration keeps Discord login enabled');
+  discordEnabled=false;
 
   requests.length=0;badHealth=true;
   const offline=harness({sessionToken:key,rememberedToken:key});await offline.run(key,true);

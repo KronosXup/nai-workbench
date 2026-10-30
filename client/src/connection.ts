@@ -8,4 +8,5 @@ export async function verifyGateHealth() {
   if (!response.ok) throw new ApiError("暂时无法确认服务状态，请稍后重试。", response.status);
   const health = await response.json();
   if (health?.mode !== "gate") throw new Error("服务类型无效，连接已取消。");
+  return { discordLoginEnabled: health.discord_login === true };
 }

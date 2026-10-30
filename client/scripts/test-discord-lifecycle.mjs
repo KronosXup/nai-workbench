@@ -35,18 +35,19 @@ function evaluate(expression, environment) {
   return new Function(...Object.keys(environment), `${compiled}; return actual;`)(...Object.values(environment));
 }
 const flush = async () => {for (let i = 0; i < 12; i++) await new Promise(resolve => setImmediate(resolve));};
-async function logoutScenario(status, token = DISCORD_SESSION_ACCESS_TOKEN, pending = false, confirmed = true) {
+async function logoutScenario(status, token = DISCORD_SESSION_ACCESS_TOKEN, pending = false, confirmed = true, discordLoginEnabled = true) {
   const events = [], failures = [];
   let resolveResponse;
   globalThis.fetch = () => {events.push('request'); return new Promise(resolve => {resolveResponse = resolve;});};
   const actual = evaluate(disconnect.getText(file), {
-    apiRef: {current: {pending: () => pending}}, token, logoutWorkbenchSession,
+    apiRef: {current: {pending: () => pending}}, token, logoutWorkbenchSession, discordLoginEnabled, DISCORD_SESSION_ACCESS_TOKEN,
     resetConnection: () => events.push('reset'), fail: error => failures.push(error.message),
     setNotice: message => events.push(message), setDisconnecting() {}, disconnectPending: {current: false},
     window: {confirm: () => confirmed},
   });
   const promise = actual();
-  assert.equal(events.includes('reset'), false, 'Local identity must stay intact while logout is pending');
+  if (discordLoginEnabled || token === DISCORD_SESSION_ACCESS_TOKEN)
+    assert.equal(events.includes('reset'), false, 'Local identity must stay intact while logout is pending');
   resolveResponse?.(new Response(null, {status}));
   await promise;
   return {events, failures};
@@ -59,6 +60,8 @@ const keyOutage = await logoutScenario(503, 'existing-key');
 assert.equal(keyOutage.events.includes('reset'), true, 'API Key logout must clear local identity during an OAuth outage');
 assert.equal(keyOutage.failures.length, 0);
 assert.ok(keyOutage.events.some(event => event.includes('未能确认')), 'Do not claim the Cookie was revoked');
+assert.deepEqual((await logoutScenario(503, 'existing-key', false, true, false)).events, ['reset'],
+  'A Key-only deployment must exit without calling the absent OAuth service');
 assert.equal((await logoutScenario(404)).events.includes('reset'), false);
 assert.deepEqual((await logoutScenario(200, DISCORD_SESSION_ACCESS_TOKEN, true, false)).events, [], 'Cancel confirmation must not revoke the session');
 assert.ok(!source.includes('indexedDB.deleteDatabase'), 'Logout must retain this device gallery, drafts, and canvas projects');

@@ -374,7 +374,7 @@ const checks = [
       setBusy:value=>{state.busy=value;}, setUser:value=>{state.user=value;},
       setDraft:value=>{state.draft=typeof value==='function'?value(state.draft):value;},
       setLoaded:value=>{state.loaded=value;}, setToken:value=>{state.token=value;},
-      setConnecting:noop, setFailure:noop, setUserRefreshIssue:noop, setBackupWarning:noop,
+      setConnecting:noop, setDiscordLoginEnabled:noop, setFailure:noop, setUserRefreshIssue:noop, setBackupWarning:noop,
       setImports:noop, setDragging:noop, setApi:noop, setCaps:noop, setRows:noop, setJobs:noop,
       setSaveIssue:noop, setQueuePaused:noop, setQueueEncoding:noop, setEncodingPaused:noop,
       setEncodingRetryAt:noop, setEncodingWaitReason:noop, setEncodingQueuePosition:noop, setEncodingCanCancel:noop, setBlankCanvas:noop,
@@ -385,7 +385,7 @@ const checks = [
       sessionStorage:{getItem:key=>session.get(key)??null,removeItem:key=>session.delete(key),setItem:(key,value)=>session.set(key,value)},
       localStorage:{getItem:key=>remembered.get(key)??null,removeItem:key=>remembered.delete(key),setItem:(key,value)=>remembered.set(key,value)},
       ApiError,
-      location:{origin:'https://fixture'}, fallbackModels:[], verifyGateHealth:async()=>{},
+      location:{origin:'https://fixture'}, fallbackModels:[], verifyGateHealth:async()=>({discordLoginEnabled:false}),
       canvasProjectScope:()=> 'scope-B', restoreDraftForSession:actualFunction('restoreDraftForSession'),
       migrateDirectorDraft, DISCORD_SESSION_ACCESS_TOKEN: "__discord_session__",
       GateApi:class { async request(route) {

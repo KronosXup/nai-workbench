@@ -299,6 +299,7 @@ export default function App() {
   );
   const [loginToken, setLoginToken] = useState(token === DISCORD_SESSION_ACCESS_TOKEN ? "" : token);
   const [loginError] = useState(() => loginErrorMessage(new URL(location.href).searchParams.get('login_error')));
+  const [discordLoginEnabled, setDiscordLoginEnabled] = useState(false);
   const [rememberDevice, setRememberDevice] = useState(
     () => Boolean(token && token !== DISCORD_SESSION_ACCESS_TOKEN && localStorage.getItem("nai-wb-remembered-token") === token),
   );
@@ -607,7 +608,8 @@ export default function App() {
     disconnectPending.current = true;
     setDisconnecting(true);
     try {
-      const revoked = await logoutWorkbenchSession(token);
+      const revoked = discordLoginEnabled || token === DISCORD_SESSION_ACCESS_TOKEN
+        ? await logoutWorkbenchSession(token) : true;
       resetConnection();
       if (!revoked) setNotice("已退出本页 API Key；未能确认 Discord 会话已撤销。");
     } catch (error) {
@@ -616,7 +618,7 @@ export default function App() {
       disconnectPending.current = false;
       setDisconnecting(false);
     }
-  }, [resetConnection, token]);
+  }, [resetConnection, token, discordLoginEnabled]);
   const connect = useCallback(async (access: string, rememberDevice = false) => {
     settleConfirmation(false);
     const seq = ++generation.current;
@@ -646,8 +648,9 @@ export default function App() {
     let invalidCredential = false;
     try {
       if (!access.trim()) throw new Error("请填写 Gate Key。");
-      await verifyGateHealth();
+      const health = await verifyGateHealth();
       if (seq !== generation.current) return;
+      setDiscordLoginEnabled(health.discordLoginEnabled);
       const client = new GateApi(".", access.trim());
       const [me, capabilities] = await Promise.all([
         client.request<User>("/me").catch((error: unknown) => {
@@ -714,24 +717,30 @@ export default function App() {
     consumeLoginError(new URL(location.href), history);
     let stopped = false;
     const seq = generation.current;
-    if (!loginError) {
-      setConnecting(true);
-      void (async () => {
-        try {
-          const access = await restoreWorkbenchAccess(token);
-          if (stopped || seq !== generation.current) return;
-          if (access) await connect(access, rememberDevice && access !== DISCORD_SESSION_ACCESS_TOKEN);
-          else {
-            setToken("");
-            sessionStorage.removeItem("nai-wb-token");
-          }
-        } catch (error) {
-          if (!stopped && seq === generation.current) fail(error);
-        } finally {
-          if (!stopped && seq === generation.current) setConnecting(false);
+    setConnecting(true);
+    void (async () => {
+      try {
+        if (token && token !== DISCORD_SESSION_ACCESS_TOKEN && !loginError) {
+          await connect(token, rememberDevice);
+          return;
         }
-      })();
-    }
+        const health = await verifyGateHealth();
+        if (stopped || seq !== generation.current) return;
+        setDiscordLoginEnabled(health.discordLoginEnabled);
+        if (loginError) return;
+        const access = health.discordLoginEnabled ? await restoreWorkbenchAccess(token) : '';
+        if (stopped || seq !== generation.current) return;
+        if (access) await connect(access, false);
+        else {
+          setToken("");
+          sessionStorage.removeItem("nai-wb-token");
+        }
+      } catch (error) {
+        if (!stopped && seq === generation.current && !loginError) fail(error);
+      } finally {
+        if (!stopped && seq === generation.current) setConnecting(false);
+      }
+    })();
     return () => {
       stopped = true;
       generation.current++;
@@ -1863,13 +1872,13 @@ export default function App() {
               <Paintbrush size={30} strokeWidth={1.6} aria-hidden="true" />
               <h1 id="login-title">NAI 工作台</h1>
             </header>
-            <a className="discord-login" href="/workbench-auth/discord/start">
+            {discordLoginEnabled && <><a className="discord-login" href="/workbench-auth/discord/start">
               使用 Discord 登录
             </a>
             <p className="login-help discord-login-help">
               仅限已有有效 Key 的账户。Key 已回收请先在 Discord 使用 /find；未注册请先使用 /register。
             </p>
-            <div className="login-separator"><span>或使用 API Key</span></div>
+            <div className="login-separator"><span>或使用 API Key</span></div></>}
             <Field label="Gate Key">
               <input
                 autoFocus

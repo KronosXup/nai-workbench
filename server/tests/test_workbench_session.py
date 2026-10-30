@@ -13,6 +13,19 @@ KEY = 'nai-fixture-existing-key-123456789'
 SECRET = 'fixture-private-session-bridge'
 
 
+def test_health_reports_existing_discord_configuration_without_exposing_secrets(monkeypatch):
+    async def run():
+        app = create_app('http://gate.fixture', httpx.MockTransport(lambda request: (_ for _ in ()).throw(AssertionError('unexpected Gate call'))))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+            for configured in (False, True):
+                monkeypatch.setenv('WORKBENCH_AUTH_BRIDGE_SECRET', SECRET if configured else '')
+                response = await client.get('/api/health')
+                assert response.status_code == 200
+                assert response.json()['discord_login'] is configured
+                assert SECRET not in response.text
+    asyncio.run(run())
+
+
 def environment(monkeypatch, *, resolve_status=200, resolve_body=None, sessions=None):
     monkeypatch.setenv('WORKBENCH_AUTH_BRIDGE_SECRET', SECRET)
     calls = []

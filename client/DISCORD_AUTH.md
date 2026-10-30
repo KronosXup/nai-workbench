@@ -2,11 +2,13 @@
 
 The client supports both the existing API Key form and Discord cookie sessions. OAuth is a second login method for accounts that already have a valid Gate Key; it does not register users or issue Keys. The login page directs reclaimed-Key users to `/find` and unregistered users to `/register` in Discord.
 
+The existing server-only `WORKBENCH_AUTH_BRIDGE_SECRET` enables Discord login. `/api/health` exposes only a `discord_login` boolean; unconfigured deployments hide the login entry and skip OAuth session probes. Existing Cookie names, OAuth paths and bridge configuration remain supported without another setting.
+
 ## Same-origin server contract
 
 - `GET /workbench-auth/discord/start`: the login link navigates to this root path, not `workbench/api/...`.
 - `GET /workbench-auth/session`: with `credentials: same-origin`, `cache: no-store`, return only `{ "authenticated": true }` for a valid session; return 401/403 otherwise. Never expose the Key or opaque session token to JavaScript.
-- `POST /workbench-auth/logout`: receive same-origin credentials and `X-Workbench-CSRF: 1`; revoke the session and expire its Cookie. A missing session should be an idempotent 200. An absent OAuth service may return 404, or 405 from a legacy GET catch-all; these permit local API Key logout but the UI explicitly does not claim Cookie revocation. A Discord logout error retains the current connection and displays a retry message.
+- `POST /workbench-auth/logout`: receive same-origin credentials and `X-Workbench-CSRF: 1`; revoke the session and expire its Cookie. A missing session should be an idempotent 200. A Discord logout error retains the current connection and displays a retry message. API Key logout clears the local connection even if this request fails; the UI reports unconfirmed Cookie revocation. Key-only deployments skip this request.
 - Callback success returns to `/workbench/`. Failure returns to `/workbench/?login_error=<code>` using only `not_registered`, `key_reclaimed`, `key_disabled`, `key_expired`, `auth_failed`, `state_invalid`, or `service_unavailable`.
 - The server owns `__Host-ashita-wb-session` (`HttpOnly; Secure; SameSite=Lax; Path=/`). The client never reads or writes it.
 
