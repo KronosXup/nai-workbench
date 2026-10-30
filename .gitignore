@@ -17,3 +17,9 @@ deploy/stack/caddy-config/
 deploy/stack/backups/
 deploy/stack/Caddyfile
 *.log
+
+# Private deployment backups and image-layer helpers from local installations.
+deploy-backups/
+Dockerfile.ashita-subpath*
+Dockerfile.discord-login*
+Dockerfile.upstream-sync*

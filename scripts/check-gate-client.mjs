@@ -56,7 +56,7 @@ function compiled(file,deps={}) {
   const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
   const exports={};new Function('require','exports',code)(name=>deps[name],exports);return exports;
 }
-const api=compiled('api.ts');
+const api=compiled('api.ts',{'./auth':compiled('auth.ts')});
 const queueTypes={uuid:()=>`queue-${++seq}`};
 const imageQueue=compiled('imageQueue.ts',{'./api':api,'./types':queueTypes});
 const {GateApi}=compiled('gateApi.ts',{'./api':api,'./types':{uuid:()=>`result-${++seq}`},

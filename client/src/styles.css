@@ -1771,6 +1771,38 @@ svg {
   font-size: 16px;
   font-weight: 600;
 }
+.discord-login {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  padding: 10px 16px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.discord-login:hover,
+.discord-login:focus-visible {
+  border-color: var(--yellow);
+  color: var(--yellow);
+}
+.login-separator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.login-separator::before,
+.login-separator::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--line);
+}
 .login-screen > .message-bar {
   top: 16px;
   width: min(440px, calc(100vw - 32px));

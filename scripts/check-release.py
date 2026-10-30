@@ -19,6 +19,8 @@ PUBLIC_TESTS = (
     "server/tests/test_inpaint.py",
     "server/tests/test_bridge_security.py",
     "server/tests/test_task_validation.py",
+    "server/tests/test_workbench_session.py",
+    "server/tests/test_release_package.py",
     "server/adapter_tests/test_adapters.py",
 )
 CLIENT_TESTS = (
@@ -27,6 +29,13 @@ CLIENT_TESTS = (
     "client/scripts/test-canvas-project.mjs",
     "client/scripts/test-pixel-snap.mjs",
     "client/scripts/test-mask-grid.mjs",
+    "client/scripts/test-discord-auth.mjs",
+    "client/scripts/test-discord-lifecycle.mjs",
+    "client/scripts/test-discord-startup.mjs",
+    "client/scripts/test-discord-transport.mjs",
+    "client/scripts/test-discord-ui.mjs",
+    "client/scripts/test-download-names.mjs",
+    "client/scripts/test-subpath.mjs",
 )
 
 PYTHON_OFFLINE_GUARD = r'''
@@ -205,7 +214,8 @@ def main() -> int:
             env=env,
         )
         for script in checks:
-            run(script.relative_to(ROOT).as_posix(), [node, str(script)], cwd=ROOT, env=env)
+            cwd = ROOT / "client" if script.parent == ROOT / "client" / "scripts" else ROOT
+            run(script.relative_to(ROOT).as_posix(), [node, str(script)], cwd=cwd, env=env)
 
     print(f"\nPASS: offline release checks completed ({len(checks)} client scripts).", flush=True)
     return 0

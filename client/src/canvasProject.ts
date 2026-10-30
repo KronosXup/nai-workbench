@@ -1,4 +1,5 @@
 import { sha256 } from "@noble/hashes/sha256";
+import { DISCORD_SESSION_ACCESS_TOKEN } from "./auth.ts";
 
 export const MAX_CANVAS_PIXELS = 4_194_304;
 export const MAX_CANVAS_SIDE = 4096;
@@ -50,8 +51,12 @@ export function selectCanvasProjectsForBackup<T extends BackupCandidate>(
 }
 
 // Only a digest of the access key enters the local database key; the key itself never does.
-export function canvasProjectScope(owner: string, accessKey: string) {
+export function canvasProjectScope(owner: string, accessKey: string, meId?: string) {
   if (!owner || !accessKey.trim()) throw new Error("当前连接尚未就绪。");
+  if (accessKey.trim() === DISCORD_SESSION_ACCESS_TOKEN) {
+    if (!meId || !/^gate-[a-f0-9]{64}$/.test(meId)) throw new Error("Discord 登录身份无效，请重新登录。");
+    return `${owner}|key-sha256:${meId.slice(5)}`;
+  }
   const digest = Array.from(sha256(new TextEncoder().encode(accessKey.trim())), byte => byte.toString(16).padStart(2, "0")).join("");
   return `${owner}|key-sha256:${digest}`;
 }

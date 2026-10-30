@@ -355,7 +355,7 @@ const checks = [
   }],
   ['App accepts only a same-origin Gate connection', async () => {
     assert.match(sourceText, /await verifyGateHealth\(\)/);
-    assert.match(sourceText, /new GateApi\("", access\.trim\(\)\)/);
+    assert.match(sourceText, /new GateApi\("\.", access\.trim\(\)\)/);
     assert.doesNotMatch(sourceText, /\bisGate\b|\bisMock\b|\bloginBase\b|new Api\(/);
     assert.doesNotMatch(sourceText, /StorageSettings|\/admin\/users|["']\/settings/);
   }],
@@ -387,14 +387,14 @@ const checks = [
       ApiError,
       location:{origin:'https://fixture'}, fallbackModels:[], verifyGateHealth:async()=>{},
       canvasProjectScope:()=> 'scope-B', restoreDraftForSession:actualFunction('restoreDraftForSession'),
-      migrateDirectorDraft,
+      migrateDirectorDraft, DISCORD_SESSION_ACCESS_TOKEN: "__discord_session__",
       GateApi:class { async request(route) {
         if(route==='/me') return {id:'B',name:'Owner B',quota:{remaining:5}};
         if(route==='/capabilities') return {models:[],operations:[]};
         throw new Error(`Unmodelled connection request: ${route}`);
       } },
     };
-    actualFunction('disconnect',scope)();
+    actualFunction('resetConnection',scope)();
     assert.equal(state.closed,true);
     assert.equal(state.busy,false,'confirmed logout must clear the abandoned submission spinner');
     assert.equal(scope.submitting.current,false,'a new session must not inherit the old submit guard');

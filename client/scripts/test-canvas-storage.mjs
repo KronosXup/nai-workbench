@@ -9,6 +9,7 @@ const clientRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 const packageRequire = createRequire(path.join(clientRoot, "package.json"));
 const cache = new Map();
 function actualModule(name) {
+  name = name.replace(/\.ts$/, '');
   if (cache.has(name)) return cache.get(name);
   const exports = {};
   cache.set(name, exports);

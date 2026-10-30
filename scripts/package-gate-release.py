@@ -29,6 +29,7 @@ FIXED_FILES = (
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "client/README.md",
+    "client/DISCORD_AUTH.md",
     "client/index.html",
     "client/package-lock.json",
     "client/package.json",
@@ -39,6 +40,13 @@ FIXED_FILES = (
     "client/scripts/test-canvas-tools.mjs",
     "client/scripts/test-pixel-snap.mjs",
     "client/scripts/test-mask-grid.mjs",
+    "client/scripts/test-discord-auth.mjs",
+    "client/scripts/test-discord-lifecycle.mjs",
+    "client/scripts/test-discord-startup.mjs",
+    "client/scripts/test-discord-transport.mjs",
+    "client/scripts/test-discord-ui.mjs",
+    "client/scripts/test-download-names.mjs",
+    "client/scripts/test-subpath.mjs",
     "client/public/fonts/SourceSansPro-Bold.ttf.woff2",
     "client/public/fonts/SourceSansPro-LICENSE.txt",
     "client/public/fonts/SourceSansPro-Regular.ttf.woff2",
@@ -86,6 +94,7 @@ FIXED_FILES = (
     "server/app/inpaint.py",
     "server/app/model_policy.py",
     "server/app/task_validation.py",
+    "server/app/workbench_session.py",
     "server/tests/conftest.py",
     "server/tests/test_bridge_security.py",
     "server/tests/test_gate_bridge.py",
@@ -93,13 +102,15 @@ FIXED_FILES = (
     "server/tests/test_enhance_receipts.py",
     "server/tests/test_inpaint.py",
     "server/tests/test_task_validation.py",
+    "server/tests/test_workbench_session.py",
+    "server/tests/test_release_package.py",
     "server/adapter_tests/test_adapters.py",
 )
 CLIENT_SOURCE_SUFFIXES = {".css", ".ts", ".tsx"}
 
 
 def allowlisted_files() -> list[str]:
-    files = set(FIXED_FILES)
+    files: set[str] = set(FIXED_FILES)
     licenses_root = ROOT / "third_party_licenses"
     license_index = licenses_root / ".generated-files.json"
     files.add(license_index.relative_to(ROOT).as_posix())

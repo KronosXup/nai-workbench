@@ -240,9 +240,9 @@ export class GateApi extends Api {
   }
   private async raw(path: string, body?: unknown, signal:AbortSignal=this.controller.signal, ticket?:ImageQueueTicket) {
     return fetch(`${this.base}/api${path}`, {method: body === undefined ? 'GET' : 'POST',
-      headers: {Authorization: `Bearer ${this.accessToken}`, 'Content-Type':'application/json',
+      headers: {...this.authHeaders(), 'Content-Type':'application/json',
         ...(ticket?{'X-NAI-Gate-Queue-Ticket':ticket.ticket_id,'X-NAI-Gate-Queue-Request':ticket.request_id}:{})},
-      body: body === undefined ? undefined : JSON.stringify(body), cache:'no-store', signal});
+      body: body === undefined ? undefined : JSON.stringify(body), cache:'no-store', credentials:'same-origin', signal});
   }
   override async request<T>(path: string, body?: unknown, method?: string, signal?: AbortSignal): Promise<T> {
     if (this.closed) throw new Error('连接已关闭');
