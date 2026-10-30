@@ -43,17 +43,17 @@ export async function restoreWorkbenchAccess(storedAccess: string, fetcher: type
   }
 }
 
-// False means a legacy Key-only deployment has no OAuth service, not "cookie revoked".
+// API Key logout is local; false means Cookie revocation could not be confirmed.
 export async function logoutWorkbenchSession(access: string, fetcher: typeof fetch = fetch): Promise<boolean> {
   try {
     const response = await fetcher('/workbench-auth/logout', {
       method: 'POST', credentials: 'same-origin', cache: 'no-store', redirect: 'error',
       headers: { 'X-Workbench-CSRF': '1' }, signal: AbortSignal.timeout(12000),
     });
-    if ([404, 405].includes(response.status) && access.trim() !== DISCORD_SESSION_ACCESS_TOKEN) return false;
     if (!response.ok) throw new Error('logout unavailable');
     return true;
   } catch {
+    if (access.trim() !== DISCORD_SESSION_ACCESS_TOKEN) return false;
     throw new Error('未能确认登录会话已撤销，尚未退出，请稍后重试。');
   }
 }

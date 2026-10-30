@@ -55,6 +55,10 @@ assert.deepEqual((await logoutScenario(200)).events.slice(0, 2), ['request', 're
 assert.deepEqual((await logoutScenario(503)).events, ['request']);
 assert.ok((await logoutScenario(503)).failures[0].includes('未能确认'));
 assert.equal((await logoutScenario(404, 'existing-key')).events.includes('reset'), true);
+const keyOutage = await logoutScenario(503, 'existing-key');
+assert.equal(keyOutage.events.includes('reset'), true, 'API Key logout must clear local identity during an OAuth outage');
+assert.equal(keyOutage.failures.length, 0);
+assert.ok(keyOutage.events.some(event => event.includes('未能确认')), 'Do not claim the Cookie was revoked');
 assert.equal((await logoutScenario(404)).events.includes('reset'), false);
 assert.deepEqual((await logoutScenario(200, DISCORD_SESSION_ACCESS_TOKEN, true, false)).events, [], 'Cancel confirmation must not revoke the session');
 assert.ok(!source.includes('indexedDB.deleteDatabase'), 'Logout must retain this device gallery, drafts, and canvas projects');

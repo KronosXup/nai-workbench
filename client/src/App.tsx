@@ -609,7 +609,7 @@ export default function App() {
     try {
       const revoked = await logoutWorkbenchSession(token);
       resetConnection();
-      if (!revoked) setNotice("已退出本页 API Key；此服务未配置 Discord 登录，无法确认 Cookie 会话撤销。");
+      if (!revoked) setNotice("已退出本页 API Key；未能确认 Discord 会话已撤销。");
     } catch (error) {
       fail(error);
     } finally {

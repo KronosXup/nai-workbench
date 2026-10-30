@@ -67,6 +67,8 @@ response = new Response(null, {status: 405, headers: {Allow: 'GET'}});
 assert.equal(await auth.logoutWorkbenchSession('existing-key', fetcher), false, 'The actual GET catchall 405 also means OAuth is absent for Key-only logout');
 await assert.rejects(auth.logoutWorkbenchSession(auth.DISCORD_SESSION_ACCESS_TOKEN, fetcher), /未能确认.*撤销/);
 response = new Response('private upstream details', {status: 503});
-await assert.rejects(auth.logoutWorkbenchSession('existing-key', fetcher), /未能确认.*撤销/);
+assert.equal(await auth.logoutWorkbenchSession('existing-key', fetcher), false,
+  'An OAuth outage must not prevent local API Key logout');
+assert.equal(await auth.logoutWorkbenchSession('existing-key', async () => {throw new Error('network failure');}), false);
 await assert.rejects(auth.logoutWorkbenchSession(auth.DISCORD_SESSION_ACCESS_TOKEN, async () => {throw new Error('private network details');}), /未能确认.*撤销/);
-console.log('PASS logout: CSRF header, cookie revocation request, honest failure, legacy 404/405 compatibility');
+console.log('PASS logout: Discord revocation required; API Key exit survives OAuth outages and absent services');
