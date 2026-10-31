@@ -82,6 +82,7 @@ type Props = {
   mobile: "edit" | "result";
   onMobileChange: (view: "edit" | "result") => void;
   onEnlarge: () => void;
+  onInspect: (row: LocalImage) => void;
   onReuse: () => void;
   onVariations: () => void;
   onEnhance: () => void;
@@ -754,7 +755,7 @@ export default function OfficialWorkspace(p: Props) {
           focusRevision={canvasFocusRevision} allowUpscale={allowUpscale} transparencyBackground={transparencyBackground}
           source={showSource && params.image ? {image:params.image, width:params.width, height:params.height} : undefined}
           compareSource={!generation && params.image && !showSource && !showPending && !displayPreview ? {image:params.image, width:params.width, height:params.height} : undefined}
-          onSelect={selectHistory} onShowLive={showLive} onReady={setReadyResultId} renderImage={p.renderImage} />}
+          onSelect={selectHistory} onInspect={p.onInspect} onShowLive={showLive} onReady={setReadyResultId} renderImage={p.renderImage} />}
       </section>
       {history && (
         <aside className="nai-history">

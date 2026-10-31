@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react';
-import { fitCanvasRect, zoomCanvasAt } from './outputCanvasGeometry';
+import { clampCanvasCamera, fitCanvasRect, zoomCanvasAt } from './outputCanvasGeometry';
 import type { CanvasCamera, CanvasRect, CanvasSize } from './outputCanvasGeometry';
 
 type Point = { x: number; y: number };
@@ -12,12 +12,13 @@ type Props = {
   worldRef: RefObject<HTMLDivElement | null>;
   onTap?: (point: Point, camera: CanvasCamera) => void;
   allowUpscale?: boolean;
+  bounds: CanvasRect;
 };
 
 const midpoint = (a: Point, b: Point): Point => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
 const distance = (a: Point, b: Point) => Math.hypot(b.x - a.x, b.y - a.y);
 
-export default function useOutputCamera({ viewportRef, worldRef, onTap, allowUpscale = true }: Props) {
+export default function useOutputCamera({ viewportRef, worldRef, onTap, bounds, allowUpscale = true }: Props) {
   const [camera, setCamera] = useState<CanvasCamera>({ x: 0, y: 0, scale: 1 });
   const [viewport, setViewport] = useState<CanvasSize>({ width: 0, height: 0 });
   const [dragging, setDragging] = useState(false);
@@ -30,6 +31,8 @@ export default function useOutputCamera({ viewportRef, worldRef, onTap, allowUps
   const gesture = useRef<Gesture | undefined>(undefined);
   const wasDrag = useRef(false), tap = useRef(onTap);
   const upscale = useRef(allowUpscale);
+  const limits = useRef(bounds);
+  limits.current = bounds;
   tap.current = onTap;
   upscale.current = allowUpscale;
 
@@ -39,6 +42,7 @@ export default function useOutputCamera({ viewportRef, worldRef, onTap, allowUps
   }, []);
 
   const apply = useCallback((next: CanvasCamera, publishNow = false) => {
+    next = clampCanvasCamera(next, size.current, limits.current);
     current.current = next;
     if (worldRef.current) worldRef.current.style.transform = `translate(${next.x}px, ${next.y}px) scale(${next.scale})`;
     if (publishNow) {
@@ -52,6 +56,8 @@ export default function useOutputCamera({ viewportRef, worldRef, onTap, allowUps
       });
     }
   }, [worldRef]);
+
+  useLayoutEffect(() => { apply(current.current, true); }, [bounds.x, bounds.y, bounds.width, bounds.height, apply]);
 
   const clearPointers = useCallback(() => {
     const ids = [...pointers.current.keys()];

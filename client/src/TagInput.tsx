@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { emphasisBackground, promptEmphasis } from './promptEmphasis';
+import { adjustPromptWeight } from './promptTags';
 import './tagInput.css';
 
 export type TagSuggestion = { tag: string; count: number };
@@ -31,6 +32,7 @@ export function tagFragment(value: string, cursor: number) {
 
 export default function TagInput({label,value,onChange,model,suggest,disabled,placeholder}: Props) {
   const input = useRef<HTMLTextAreaElement>(null);
+  const composing = useRef(false);
   const highlights = useRef<HTMLDivElement>(null);
   const emphasis = useMemo(() => promptEmphasis(value, model), [value, model]);
   const [cursor,setCursor] = useState(value.length);
@@ -40,6 +42,26 @@ export default function TagInput({label,value,onChange,model,suggest,disabled,pl
   const [message,setMessage] = useState('');
   const request = useRef(0);
   const fragment = tagFragment(value,cursor);
+
+  useEffect(() => {
+    const field = input.current;
+    if (!field) return;
+    const wheel = (event: WheelEvent) => {
+      if (document.activeElement !== field || composing.current || event.ctrlKey || event.metaKey || !event.deltaY) return;
+      const edit = adjustPromptWeight(field.value, field.selectionStart, field.selectionEnd, -event.deltaY, model);
+      if (!edit) return;
+      event.preventDefault();
+      field.setSelectionRange(edit.start, edit.end);
+      if (!document.execCommand('insertText', false, edit.replacement)) onChange(edit.value);
+      setTags([]); setMessage('');
+      requestAnimationFrame(() => {
+        field.setSelectionRange(edit.selectionStart, edit.selectionEnd);
+        setCursor(edit.selectionStart);
+      });
+    };
+    field.addEventListener('wheel', wheel, { passive: false });
+    return () => field.removeEventListener('wheel', wheel);
+  }, [model, onChange]);
 
   function syncHighlights() {
     const textarea = input.current, mirror = highlights.current;
@@ -115,8 +137,9 @@ export default function TagInput({label,value,onChange,model,suggest,disabled,pl
       {emphasis.map((span, index) => <span key={index} style={{ backgroundColor: emphasisBackground(span) }}>{span.text}</span>)}
       {value.endsWith('\n') ? '\u200b' : ''}
     </div>
-    <textarea ref={input} className="nai-prompt-input" aria-label={label} aria-autocomplete={suggest && !disabled ? 'list' : 'none'}
+    <textarea ref={input} className="nai-prompt-input" aria-label={label} title="选中文字后滚动鼠标滚轮调整权重" aria-autocomplete={suggest && !disabled ? 'list' : 'none'}
       aria-expanded={tags.length>0} placeholder={placeholder} value={value}
+      onCompositionStart={()=>{composing.current=true;}} onCompositionEnd={()=>{composing.current=false;}}
       onChange={event=>{onChange(event.target.value);setCursor(event.target.selectionStart);setFocused(true);}}
       onSelect={event=>setCursor(event.currentTarget.selectionStart)}
       onFocus={()=>setFocused(true)} onBlur={()=>{setFocused(false);setTags([]);}}

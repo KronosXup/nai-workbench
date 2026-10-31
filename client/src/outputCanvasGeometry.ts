@@ -46,6 +46,17 @@ export function canvasVisibleRect(camera: CanvasCamera, viewport: CanvasSize): C
   };
 }
 
+export function clampCanvasCamera(camera: CanvasCamera, viewport: CanvasSize, bounds: CanvasRect, padding = 24): CanvasCamera {
+  if (!viewport.width || !viewport.height) return camera;
+  const axis = (position: number, start: number, length: number, available: number) =>
+    length * camera.scale <= available - padding * 2
+      ? available / 2 - (start + length / 2) * camera.scale
+      : Math.max(available - padding - (start + length) * camera.scale,
+          Math.min(padding - start * camera.scale, position));
+  return { ...camera, x: axis(camera.x, bounds.x, bounds.width, viewport.width),
+    y: axis(camera.y, bounds.y, bounds.height, viewport.height) };
+}
+
 export function canvasRectsIntersect(a: CanvasRect, b: CanvasRect, margin = 0): boolean {
   return a.x <= b.x + b.width + margin && a.x + a.width >= b.x - margin
     && a.y <= b.y + b.height + margin && a.y + a.height >= b.y - margin;

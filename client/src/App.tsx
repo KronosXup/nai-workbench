@@ -1936,6 +1936,7 @@ export default function App() {
               mobile={mobileTab}
               onMobileChange={setMobileTab}
               onEnlarge={() => { if (drawingSelected) { chooseResult(drawingSelected.id); setLightbox(true); } }}
+              onInspect={row => { chooseResult(row.id); setLightbox(true); }}
               onReuse={() => drawingSelected && reuse(drawingSelected)}
               onVariations={() => drawingSelected && void generateVariations(drawingSelected)}
               onEnhance={() => drawingSelected && void openEnhance(drawingSelected)}

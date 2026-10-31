@@ -49,7 +49,7 @@ const controls = {
   director: { label: "发送到图像工具", Icon: ArrowRight },
   reuse: { label: "回填参数", Icon: SlidersHorizontal },
   enlarge: { label: "放大查看", Icon: Expand },
-  save: { label: "保存", Icon: Download },
+  save: { label: "下载选中图", Icon: Download },
 };
 const primaryActions: CanvasToolbarActionId[] = ["enhance", "variations", "upscale", "img2img", "edit", "inpaint", "director"];
 const extraActions: CanvasToolbarActionId[] = ["pixel", "vibe", "reference", "reuse", "enlarge"];

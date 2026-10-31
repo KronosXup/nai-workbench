@@ -159,6 +159,15 @@ export default function ImageViewer({row, rows, onSelect, onClose}: {
         <p>完成 {receipt.completed_images} 张 · 本图 {String(row.result.metadata.width)} × {String(row.result.metadata.height)}</p>
       </> : <p>这张图片没有 Gate 执行回执。</p>}
     </details>
+    <details className="image-execution-details image-prompt-details" key={`prompts:${row.id}`} open>
+      <summary>图片提示词 · 可选择部分文字复制</summary>
+      <label>正面提示词<textarea aria-label="图片正面提示词" readOnly rows={3} value={row.job.prompt} /></label>
+      <label>负面提示词<textarea aria-label="图片负面提示词" readOnly rows={2} value={row.job.negative_prompt} /></label>
+      {(row.job.parameters.character_prompts ?? []).filter(character => character.enabled !== false).map((character, index) => <div key={index}>
+        <label>角色 {index + 1} 正面<textarea aria-label={`角色 ${index + 1} 正面提示词`} readOnly rows={2} value={character.prompt} /></label>
+        {character.negative_prompt && <label>角色 {index + 1} 负面<textarea aria-label={`角色 ${index + 1} 负面提示词`} readOnly rows={2} value={character.negative_prompt} /></label>}
+      </div>)}
+    </details>
     <div ref={stageRef} className="image-viewer-stage"
       onWheel={e=>changeZoom(zoomRef.current*(e.deltaY<0?1.1:1/1.1))}
       onPointerDown={handlePointerDown}

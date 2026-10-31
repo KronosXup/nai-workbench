@@ -3,6 +3,8 @@ import type { CSSProperties, ReactNode, SyntheticEvent } from 'react';
 import type { Job, LocalImage } from './types';
 import type { CanvasTransparencyBackground } from './CanvasToolbar';
 import CanvasBackdrop from './CanvasBackdrop';
+import { Download, FileText } from 'lucide-react';
+import { downloadImage } from './storage';
 import { GenerationPlaceholder } from './GenerationFeedback';
 import { canvasRectsIntersect, canvasVisibleRect, layoutCanvasItems } from './outputCanvasGeometry';
 import type { CanvasCamera, CanvasRect } from './outputCanvasGeometry';
@@ -24,6 +26,7 @@ type Props = {
   allowUpscale: boolean;
   transparencyBackground: CanvasTransparencyBackground;
   onSelect: (row: LocalImage) => void;
+  onInspect: (row: LocalImage) => void;
   onShowLive: () => void;
   onReady: (id: string) => void;
   renderImage: (row: LocalImage) => ReactNode;
@@ -100,7 +103,13 @@ export default function OutputCanvas(p: Props) {
     height: Math.max(sourceRect.y + sourceRect.height, focused.y + focused.height) - Math.min(sourceRect.y, focused.y),
   } : focused ?? emptyRect;
   const targetSignature = `${targetRect.x}:${targetRect.y}:${targetRect.width}:${targetRect.height}`;
-  const camera = useOutputCamera({ viewportRef, worldRef, allowUpscale: p.allowUpscale,
+  const content = [...placements, ...(sourceRect ? [sourceRect] : [])];
+  const left = content.length ? Math.min(...content.map(rect => rect.x)) : emptyRect.x;
+  const top = content.length ? Math.min(...content.map(rect => rect.y)) : emptyRect.y;
+  const bounds = content.length ? { x: left, y: top,
+    width: Math.max(...content.map(rect => rect.x + rect.width)) - left,
+    height: Math.max(...content.map(rect => rect.y + rect.height)) - top } : emptyRect;
+  const camera = useOutputCamera({ viewportRef, worldRef, bounds, allowUpscale: p.allowUpscale,
     onTap: (point, current: CanvasCamera) => {
       const at = { x: (point.x - current.x) / current.scale, y: (point.y - current.y) / current.scale };
       const hit = placements.find(item => contains(item, at));
@@ -161,6 +170,15 @@ export default function OutputCanvas(p: Props) {
             onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); p.onSelect(row); } }}>
             <CanvasImage row={row} renderImage={renderImage} onStatus={onStatus} onUnload={onUnload} />
           </div>}
+          {row && <>
+            {item.id === focusId && <span className="nai-world-selection">已选中</span>}
+            <div className="nai-world-actions" onPointerDown={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()}>
+              <button type="button" aria-label={`查看图片提示词 ${row.id.slice(0,6)}`} title="查看这张图的提示词"
+                onClick={event => { event.stopPropagation(); p.onInspect(row); }}><FileText /></button>
+              <button type="button" aria-label={`下载图片 ${row.id.slice(0,6)}`} title="下载这张图片"
+                onClick={event => { event.stopPropagation(); downloadImage(row); }}><Download /></button>
+            </div>
+          </>}
         </div>;
       })}
       {sourceRect && (p.source || p.compareSource) && <>

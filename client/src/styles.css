@@ -2121,6 +2121,9 @@ svg {
 .image-execution-details th:first-child { width: 22%; }
 .image-execution-details p { margin: 8px 0; }
 .image-execution-details small { color: var(--muted); }
+.image-prompt-details { flex-shrink: 0; max-height: 34vh; margin-top: 8px; user-select: text; }
+.image-prompt-details label { display: grid; gap: 5px; margin-top: 9px; color: var(--muted); }
+.image-prompt-details textarea { width: 100%; min-height: 50px; resize: vertical; color: var(--ink); font-size: 12px; line-height: 1.5; user-select: text; }
 .lightbox > header {
   display: flex;
   width: 100%;

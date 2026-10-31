@@ -97,7 +97,8 @@ const {enhanceScales, enhanceDimensions, enhanceTask} = actualModule('enhance.ts
 }
 const {withQuote} = actualModule('quote.ts');
 const gatePrice = units => ({source:'gate',units,unit_label:'积分',verified:false,message:'Gate fixture',cost_limit:{anlas:units,v5:0},encoding_cost_limit:{anlas:2,v5:0}});
-const {layoutCanvasItems, fitCanvasRect, zoomCanvasAt, canvasVisibleRect, canvasRectsIntersect} = actualModule('outputCanvasGeometry.ts');
+const {layoutCanvasItems, fitCanvasRect, zoomCanvasAt, canvasVisibleRect, canvasRectsIntersect, clampCanvasCamera} = actualModule('outputCanvasGeometry.ts');
+const {adjustPromptWeight} = actualModule('promptTags.ts');
 
 function actualFunction(name, scope) {
   scope = {effectiveModelForOperation, generationDimension, activeEnhance: null, enhanceTask, enhanceDimensions, withQuote, ...scope};
@@ -1111,6 +1112,26 @@ checks.push(['Enhance uses the selected pixels with current settings and confirm
   }
 }]);
 
+checks.push(['Selected prompt weight edits preserve text, selection and model syntax', async () => {
+  const model='nai-diffusion-4-5-full';
+  assert.equal(adjustPromptWeight('forest',2,2,1,model),null);
+  assert.equal(adjustPromptWeight('  ',0,2,1,model),null);
+  const first=adjustPromptWeight('river, red hair, sky',7,15,1,model);
+  assert.equal(first.value,'river, 1.1::red hair::, sky');
+  assert.equal(first.value.slice(first.selectionStart,first.selectionEnd),'red hair');
+  const second=adjustPromptWeight(first.value,first.selectionStart,first.selectionEnd,1,model);
+  assert.equal(second.value,'river, 1.2::red hair::, sky');
+  const back=adjustPromptWeight(first.value,first.selectionStart,first.selectionEnd,-1,model);
+  assert.equal(back.value,'river, red hair, sky');
+  assert.equal(adjustPromptWeight('1.2::猫, forest::',0,17,-1,model).value,'1.1::猫, forest::');
+  assert.equal(adjustPromptWeight('  red hair  ',0,12,1,model).value,'  1.1::red hair::  ');
+  assert.equal(adjustPromptWeight('{cat}',1,4,1,model).value,'1.15::cat::');
+  const legacy=adjustPromptWeight('cat',0,3,1,'nai-diffusion-3');
+  assert.equal(legacy.value,'{cat}');
+  assert.equal(adjustPromptWeight(legacy.value,legacy.selectionStart,legacy.selectionEnd,-1,'nai-diffusion-3').value,'cat');
+  assert.equal(adjustPromptWeight('[cat]',1,4,1,'nai-diffusion-3').value,'cat');
+}]);
+
 checks.push(['Output canvas layout preserves history positions and camera anchors', async () => {
   const items = Object.freeze([
     Object.freeze({id:'new',width:20,height:30}),
@@ -1125,6 +1146,15 @@ checks.push(['Output canvas layout preserves history positions and camera anchor
   ]);
   assert.deepEqual(layout.slice(1),layoutCanvasItems(items.slice(1),10),'new results must not move older world coordinates');
   assert.deepEqual(layoutCanvasItems([]),[]);
+  const bounds={x:-100,y:-500,width:200,height:1000},view={width:400,height:300};
+  for (const scale of [.1,1,4]) for (const offset of [-100000,100000]) {
+    const bounded=clampCanvasCamera({x:offset,y:offset,scale},view,bounds);
+    if(bounds.height*scale>view.height-48) {
+      assert.ok(bounded.y+bounds.y*scale<=24);
+      assert.ok(bounded.y+(bounds.y+bounds.height)*scale>=view.height-24);
+    } else assert.equal(bounded.y+(bounds.y+bounds.height/2)*scale,view.height/2);
+    assert.ok(Math.abs(bounded.x)<100000,'Panning must stop at the content rather than lose every image');
+  }
 
   const close = (actual,expected) => assert.ok(Math.abs(actual-expected)<1e-8,`${actual} differs from ${expected}`);
   for (const [rect,viewport] of [
