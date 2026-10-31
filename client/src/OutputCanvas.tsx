@@ -4,7 +4,7 @@ import type { Job, LocalImage } from './types';
 import type { CanvasTransparencyBackground } from './CanvasToolbar';
 import CanvasBackdrop from './CanvasBackdrop';
 import { GenerationPlaceholder } from './GenerationFeedback';
-import { canvasRectsIntersect, canvasVisibleRect, layoutCanvasItems } from './outputCanvasGeometry';
+import { canvasItemAtCenter, canvasRectsIntersect, canvasVisibleRect, layoutCanvasItems } from './outputCanvasGeometry';
 import type { CanvasCamera, CanvasRect } from './outputCanvasGeometry';
 import useOutputCamera from './useOutputCamera';
 import './outputCanvas.css';
@@ -23,8 +23,8 @@ type Props = {
   compareSource?: Source;
   allowUpscale: boolean;
   transparencyBackground: CanvasTransparencyBackground;
-  onSelect: (row: LocalImage) => void;
-  onShowLive: () => void;
+  onSelect: (row: LocalImage, preserveView?: boolean) => void;
+  onShowLive: (preserveView?: boolean) => void;
   onReady: (id: string) => void;
   renderImage: (row: LocalImage) => ReactNode;
 };
@@ -72,6 +72,7 @@ const CanvasImage = memo(function CanvasImage({ row, renderImage, onStatus, onUn
 export default function OutputCanvas(p: Props) {
   const viewportRef = useRef<HTMLDivElement>(null), worldRef = useRef<HTMLDivElement>(null);
   const loaded = useRef(new Map<string, LoadState>());
+  const preservedFocus = useRef<{ id: string; revision: number } | undefined>(undefined);
   const [readyVersion, setReadyVersion] = useState(0);
   const onStatus = useCallback((key: string, status: LoadState) => {
     if (loaded.current.get(key) === status) return;
@@ -113,6 +114,13 @@ export default function OutputCanvas(p: Props) {
       if (hit?.id === liveId) p.onShowLive();
       else if (hit && byId.has(hit.id)) p.onSelect(byId.get(hit.id)!);
     },
+    onSettled: (current, viewport) => {
+      const hit = canvasItemAtCenter(placements, current, viewport, focusId);
+      if (!hit || hit.id === focusId) return;
+      preservedFocus.current = { id: hit.id, revision: p.focusRevision };
+      if (hit.id === liveId) p.onShowLive(true);
+      else p.onSelect(byId.get(hit.id)!, true);
+    },
   });
   const lastFocus = useRef<{ id: string; revision: number; signature: string; job?: string } | undefined>(undefined);
   const currentJobId = focusId === liveId ? p.liveJob?.id : p.selected?.job.id;
@@ -122,10 +130,13 @@ export default function OutputCanvas(p: Props) {
     if (p.selected && focusId === p.selected.id && !targetStatus) return;
     const previous = lastFocus.current;
     if (previous?.id === focusId && previous.revision === p.focusRevision && previous.signature === targetSignature) return;
+    const preserveView = preservedFocus.current?.id === focusId && preservedFocus.current.revision === p.focusRevision;
     const completingLive = previous?.id.startsWith('live:') && previous.job === currentJobId && previous.signature === targetSignature && previous.revision === p.focusRevision;
-    if (!completingLive) camera.fit(targetRect, Boolean(previous && previous.id !== 'empty' && previous.id !== 'source' && focusId !== 'empty' && focusId !== 'source'));
+    if (preserveView) camera.retarget(targetRect);
+    else if (!completingLive) camera.fit(targetRect, Boolean(previous && previous.id !== 'empty' && previous.id !== 'source' && focusId !== 'empty' && focusId !== 'source'));
+    preservedFocus.current = undefined;
     lastFocus.current = { id: focusId, revision: p.focusRevision, signature: targetSignature, job: currentJobId };
-  }, [focusId, p.focusRevision, targetSignature, targetStatus, camera.viewport.width, camera.viewport.height, camera.fit]);
+  }, [focusId, p.focusRevision, targetSignature, targetStatus, camera.viewport.width, camera.viewport.height, camera.fit, camera.retarget]);
   useEffect(() => {
     if (p.selected && !p.focusLive && !p.blank && !p.source && loaded.current.get(contentKey(p.selected)) === 'ready') p.onReady(p.selected.id);
     else if (p.selected && !p.liveJob && !p.blank && !p.source && loaded.current.get(contentKey(p.selected)) === 'ready') p.onReady(p.selected.id);

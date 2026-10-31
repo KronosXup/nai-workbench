@@ -11,6 +11,7 @@ type Props = {
   viewportRef: RefObject<HTMLDivElement | null>;
   worldRef: RefObject<HTMLDivElement | null>;
   onTap?: (point: Point, camera: CanvasCamera) => void;
+  onSettled?: (camera: CanvasCamera, viewport: CanvasSize) => void;
   allowUpscale?: boolean;
   bounds: CanvasRect;
 };
@@ -18,7 +19,7 @@ type Props = {
 const midpoint = (a: Point, b: Point): Point => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
 const distance = (a: Point, b: Point) => Math.hypot(b.x - a.x, b.y - a.y);
 
-export default function useOutputCamera({ viewportRef, worldRef, onTap, bounds, allowUpscale = true }: Props) {
+export default function useOutputCamera({ viewportRef, worldRef, onTap, onSettled, bounds, allowUpscale = true }: Props) {
   const [camera, setCamera] = useState<CanvasCamera>({ x: 0, y: 0, scale: 1 });
   const [viewport, setViewport] = useState<CanvasSize>({ width: 0, height: 0 });
   const [dragging, setDragging] = useState(false);
@@ -30,16 +31,31 @@ export default function useOutputCamera({ viewportRef, worldRef, onTap, bounds, 
   const pointers = useRef(new Map<number, Point>());
   const gesture = useRef<Gesture | undefined>(undefined);
   const wasDrag = useRef(false), tap = useRef(onTap);
+  const settled = useRef(onSettled), settleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const upscale = useRef(allowUpscale);
   const limits = useRef(bounds);
   limits.current = bounds;
   tap.current = onTap;
+  settled.current = onSettled;
   upscale.current = allowUpscale;
 
   const cancelAnimation = useCallback(() => {
     if (animation.current !== undefined) cancelAnimationFrame(animation.current);
     animation.current = undefined;
   }, []);
+
+  const clearSettled = useCallback(() => {
+    if (settleTimer.current !== undefined) clearTimeout(settleTimer.current);
+    settleTimer.current = undefined;
+  }, []);
+  const scheduleSettled = useCallback(() => {
+    clearSettled();
+    settleTimer.current = setTimeout(() => {
+      settleTimer.current = undefined;
+      settled.current?.(current.current, size.current);
+    }, 160);
+  }, [clearSettled]);
+  const retarget = useCallback((rect: CanvasRect) => { target.current = rect; }, []);
 
   const apply = useCallback((next: CanvasCamera, publishNow = false) => {
     next = clampCanvasCamera(next, size.current, limits.current);
@@ -69,6 +85,7 @@ export default function useOutputCamera({ viewportRef, worldRef, onTap, bounds, 
   }, [viewportRef]);
 
   const fit = useCallback((rect: CanvasRect, animated = true) => {
+    clearSettled();
     cancelAnimation();
     clearPointers();
     target.current = rect;
@@ -88,7 +105,7 @@ export default function useOutputCamera({ viewportRef, worldRef, onTap, bounds, 
       animation.current = t < 1 ? requestAnimationFrame(frame) : undefined;
     };
     animation.current = requestAnimationFrame(frame);
-  }, [apply, cancelAnimation, clearPointers]);
+  }, [apply, cancelAnimation, clearPointers, clearSettled]);
 
   useLayoutEffect(() => {
     if (target.current) fit(target.current);
@@ -99,14 +116,16 @@ export default function useOutputCamera({ viewportRef, worldRef, onTap, bounds, 
     clearPointers();
     manual.current = true;
     apply(zoomCanvasAt(current.current, point, scale));
-  }, [apply, cancelAnimation, clearPointers]);
+    scheduleSettled();
+  }, [apply, cancelAnimation, clearPointers, scheduleSettled]);
 
   const panBy = useCallback((dx: number, dy: number) => {
     cancelAnimation();
     clearPointers();
     manual.current = true;
     apply({ ...current.current, x: current.current.x + dx, y: current.current.y + dy });
-  }, [apply, cancelAnimation, clearPointers]);
+    scheduleSettled();
+  }, [apply, cancelAnimation, clearPointers, scheduleSettled]);
 
   useLayoutEffect(() => {
     const element = viewportRef.current;
@@ -157,8 +176,9 @@ export default function useOutputCamera({ viewportRef, worldRef, onTap, bounds, 
       if (publishFrame.current !== undefined) cancelAnimationFrame(publishFrame.current);
       publishFrame.current = undefined;
       clearPointers();
+      clearSettled();
     };
-  }, [apply, cancelAnimation, clearPointers, viewportRef, zoomAt, panBy]);
+  }, [apply, cancelAnimation, clearPointers, clearSettled, viewportRef, zoomAt, panBy]);
 
   const localPoint = (event: ReactPointerEvent<HTMLDivElement>): Point => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -196,6 +216,7 @@ export default function useOutputCamera({ viewportRef, worldRef, onTap, bounds, 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0 && event.button !== 1) return;
     if (pointers.current.has(event.pointerId) || pointers.current.size >= 2) return;
+    clearSettled();
     cancelAnimation();
     if (!pointers.current.size) wasDrag.current = false;
     if (event.button === 1) event.preventDefault();
@@ -219,12 +240,15 @@ export default function useOutputCamera({ viewportRef, worldRef, onTap, bounds, 
     const isTap = !cancelled && pointers.current.size === 1 && !wasDrag.current && event.button !== 1;
     pointers.current.delete(event.pointerId);
     restartGesture();
-    if (!pointers.current.size) setDragging(false);
+    if (!pointers.current.size) {
+      setDragging(false);
+      if (wasDrag.current) scheduleSettled();
+    }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     if (isTap) tap.current?.(point, current.current);
   };
 
-  return { camera, viewport, fit, zoomAt, panBy, dragging, wasDrag, handlers: {
+  return { camera, viewport, fit, retarget, zoomAt, panBy, dragging, wasDrag, handlers: {
     onPointerDown, onPointerMove,
     onPointerUp: (event: ReactPointerEvent<HTMLDivElement>) => finishPointer(event, false),
     onPointerCancel: (event: ReactPointerEvent<HTMLDivElement>) => finishPointer(event, true),

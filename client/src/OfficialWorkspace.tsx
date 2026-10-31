@@ -73,6 +73,8 @@ type Props = {
   jobs?: DrawingJob[];
   selected?: LocalImage;
   select: (row: LocalImage) => void;
+  showLiveGeneration: boolean;
+  onShowLiveGeneration: (follow: boolean) => void;
   renderImage: (row: LocalImage) => ReactNode;
   preview?: { image: string; media_type: string; step?: number };
   onLibrary: () => void;
@@ -138,7 +140,8 @@ export default function OfficialWorkspace(p: Props) {
   const [auxiliary, setAuxiliary] = useState(false);
   const [promptTools, setPromptTools] = useState(false);
   const [positionsOpen, setPositionsOpen] = useState(false);
-  const [showLiveGeneration, setShowLiveGeneration] = useState(true);
+  const showLiveGeneration = p.showLiveGeneration;
+  const setShowLiveGeneration = p.onShowLiveGeneration;
   const [readyResultId, setReadyResultId] = useState<string>();
   const [pinnedRows, setPinnedRows] = useState<LocalImage[]>([]);
   const [canvasFocusRevision, setCanvasFocusRevision] = useState(0);
@@ -153,8 +156,8 @@ export default function OfficialWorkspace(p: Props) {
   const displayPreview = showLiveGeneration ? p.preview : undefined;
   const showPending = Boolean(activeJob && showLiveGeneration && !displayPreview);
   useEffect(() => {
-    if (activeJob) { setShowLiveGeneration(true); setPositionsOpen(false); }
-  }, [activeJob?.id, activeJob?.started_at]);
+    if (activeJob && showLiveGeneration) setPositionsOpen(false);
+  }, [activeJob?.id, activeJob?.started_at, showLiveGeneration]);
   useEffect(() => {
     if (!usesGenerationSettings(p.draft.operation) || (!p.draft.model.startsWith('nai-diffusion-4') && !p.draft.model.startsWith('nai-diffusion-5'))) setPositionsOpen(false);
   }, [p.draft.model, p.draft.operation]);
@@ -272,13 +275,14 @@ export default function OfficialWorkspace(p: Props) {
     height: typeof outputMetadata?.height === 'number' ? outputMetadata.height : outputParams.height,
     seed: Number.isInteger(outputParams.seed) && outputParams.seed >= 0 ? outputParams.seed : undefined,
   };
-  function selectHistory(row: LocalImage) {
+  function selectHistory(row: LocalImage, preserveView = false) {
     setWelcome(false); setShowLiveGeneration(false); setShowSource(false); setPositionsOpen(false);
-    setCanvasFocusRevision(value => value + 1); p.select(row);
+    if (!preserveView) setCanvasFocusRevision(value => value + 1);
+    p.select(row);
   }
-  function showLive() {
+  function showLive(preserveView = false) {
     setShowLiveGeneration(true); setShowSource(false); setPositionsOpen(false);
-    setCanvasFocusRevision(value => value + 1);
+    if (!preserveView) setCanvasFocusRevision(value => value + 1);
   }
   function togglePin() {
     if (!canUseResult || !selected) return;
@@ -765,7 +769,7 @@ export default function OfficialWorkspace(p: Props) {
             </button>
           </div>
           <div className="nai-history-strip">
-            {activeJob && <button className={`nai-history-pending${showLiveGeneration ? ' selected' : ''}`} aria-label="查看正在生成的图片" onClick={showLive}>
+            {activeJob && <button className={`nai-history-pending${showLiveGeneration ? ' selected' : ''}`} aria-label="查看正在生成的图片" onClick={() => showLive()}>
               {p.preview ? <img src={`data:${p.preview.media_type};base64,${p.preview.image}`} alt="生成中的临时预览" /> : <GenerationPlaceholder compact width={activeJob.parameters.width} height={activeJob.parameters.height} />}
             </button>}
             {p.rows.slice(0, 40).map((row) => (

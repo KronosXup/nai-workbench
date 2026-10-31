@@ -321,6 +321,8 @@ export default function App() {
   const [jobs, setJobs] = useState<PreviewJob[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
   const selectedIdRef = useRef(selectedId);
+  const followingResults = useRef(true);
+  const [showLiveGeneration, setShowLiveGeneration] = useState(true);
   const [blankCanvas, setBlankCanvas] = useState(false);
   const [blankCanvasRevision, setBlankCanvasRevision] = useState(0);
   // Keep source/result choice across page changes, including explicit history choices.
@@ -397,7 +399,12 @@ export default function App() {
   };
   const setParam = (key: string, value: unknown) =>
     setDraft((d) => ({ ...d, parameters: { ...d.parameters, [key]: value } }));
+  function setResultFollowing(follow: boolean) {
+    followingResults.current = follow;
+    setShowLiveGeneration(follow);
+  }
   function chooseResult(id?: string) {
+    setResultFollowing(false);
     setDrawingSourceVisible(false);
     selectedIdRef.current = id;
     importSequence.current++;
@@ -851,7 +858,7 @@ export default function App() {
                   return directorMatchesJob(tools, saved.job) ? { ...current, director: { ...tools, resultId: saved.id } } : current;
                 });
               }
-            } else if (selection === importSequence.current && pageRef.current === 'draw' && (!newestSaved || (existing.job.completed_at ?? existing.job.created_at) >= (newestSaved.job.completed_at ?? newestSaved.job.created_at))) {
+            } else if (followingResults.current && selection === importSequence.current && pageRef.current === 'draw' && (!newestSaved || (existing.job.completed_at ?? existing.job.created_at) >= (newestSaved.job.completed_at ?? newestSaved.job.created_at))) {
               newestSaved = existing;
               selectedIdRef.current = existing.id;
               setSelectedId(existing.id);
@@ -1198,6 +1205,7 @@ export default function App() {
       });
       if (seq !== generation.current) return;
       submitCache.current = null;
+      if (items.some(task => task.operation !== 'augment' && task.operation !== 'encode_vibe')) setResultFollowing(true);
       notify(`${items.length} 张已加入队列`);
       if (items.length > 1) setShowQueue(true);
       void refresh();
@@ -1926,6 +1934,8 @@ export default function App() {
               jobs={jobs.filter(job => job.operation !== 'augment' && job.operation !== 'encode_vibe')}
               selected={blankCanvas ? undefined : drawingSelected}
               select={(row) => { chooseResult(row.id); setBlankCanvas(false); }}
+              showLiveGeneration={showLiveGeneration}
+              onShowLiveGeneration={setResultFollowing}
               renderImage={(row) => <ImageView row={row} />}
               preview={blankCanvas ? undefined : preview}
               onSuggestTags={suggestTags}

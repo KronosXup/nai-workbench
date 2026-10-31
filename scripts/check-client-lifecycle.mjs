@@ -97,10 +97,11 @@ const {enhanceScales, enhanceDimensions, enhanceTask} = actualModule('enhance.ts
 }
 const {withQuote} = actualModule('quote.ts');
 const gatePrice = units => ({source:'gate',units,unit_label:'积分',verified:false,message:'Gate fixture',cost_limit:{anlas:units,v5:0},encoding_cost_limit:{anlas:2,v5:0}});
-const {layoutCanvasItems, fitCanvasRect, zoomCanvasAt, canvasVisibleRect, canvasRectsIntersect, clampCanvasCamera} = actualModule('outputCanvasGeometry.ts');
+const {layoutCanvasItems, fitCanvasRect, zoomCanvasAt, canvasVisibleRect, canvasRectsIntersect, clampCanvasCamera, canvasItemAtCenter} = actualModule('outputCanvasGeometry.ts');
 
 function actualFunction(name, scope) {
-  scope = {effectiveModelForOperation, generationDimension, activeEnhance: null, enhanceTask, enhanceDimensions, withQuote, ...scope};
+  scope = {effectiveModelForOperation, generationDimension, activeEnhance: null, enhanceTask, enhanceDimensions, withQuote,
+    followingResults: {current:true}, setResultFollowing:value=>{scope.followingResults.current=value;}, ...scope};
   let expression;
   function visit(node) {
     if (ts.isFunctionDeclaration(node) && node.name?.text === name) {
@@ -181,6 +182,7 @@ function harness() {
     generation: {current: 1},
     importSequence: {current: 0},
     syncBusy: {current: false},
+    followingResults: {current: true},
     selectedIdRef: {get current() { return state.selectedId; }, set current(value) { state.selectedId = value; }},
     askConfirmation: async () => true,
     errorText: error => error instanceof Error ? error.message : String(error),
@@ -589,6 +591,14 @@ const checks = [
       assert.equal(h.result.acknowledged,true);
       assert.deepEqual(h.state.errors,[]);
     }
+  }],
+  ['Browsing history before completion preserves selection while the new result is still saved', async () => {
+    const h=harness();
+    h.fn('chooseResult')('browsed-result');
+    await h.fn('refresh')();
+    assert.equal(h.state.selectedId,'browsed-result');
+    assert.equal(h.state.rows.length,1);
+    assert.equal(h.result.acknowledged,true);
   }],
   ['A drawing completion while using another page keeps the previous drawing selection', async () => {
     const h=harness(); h.scope.pageRef.current='director'; h.state.selectedId='keep-selection';
@@ -1109,6 +1119,19 @@ checks.push(['Enhance uses the selected pixels with current settings and confirm
     h.state[change]=['draft','enhance'].includes(change)?{...h.state[change]}:'changed';
     resume(true);await work;assert.equal(h.state.submitted.length,0,`${change} changed during confirmation must invalidate Enhance`);
   }
+}]);
+
+checks.push(['Canvas selection follows the visible center, not an offscreen image', async () => {
+  const items=[{id:'top',x:0,y:0,width:100,height:100},{id:'bottom',x:0,y:120,width:100,height:100}];
+  assert.equal(canvasItemAtCenter(items,{x:0,y:0,scale:1},{width:100,height:100})?.id,'top');
+  assert.equal(canvasItemAtCenter(items,{x:0,y:-120,scale:1},{width:100,height:100})?.id,'bottom');
+  assert.equal(canvasItemAtCenter(items,{x:0,y:-60,scale:1},{width:100,height:100},'bottom')?.id,'bottom');
+  assert.equal(canvasItemAtCenter(items,{x:-200,y:0,scale:1},{width:100,height:100}),undefined);
+  assert.equal(canvasItemAtCenter(items,{x:0,y:0,scale:1},{width:0,height:0}),undefined);
+  const mixed=[{id:'large',x:0,y:0,width:100,height:1000},{id:'small',x:0,y:1020,width:100,height:20}];
+  assert.equal(canvasItemAtCenter(mixed,{x:0,y:-850,scale:1},{width:100,height:200})?.id,'large',
+    'An image containing the viewport center wins even when its own center is far away');
+  assert.equal(canvasItemAtCenter([{id:'edge',x:100,y:0,width:20,height:20}],{x:0,y:0,scale:1},{width:100,height:100}),undefined);
 }]);
 
 checks.push(['Output canvas layout preserves history positions and camera anchors', async () => {

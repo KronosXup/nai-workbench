@@ -46,6 +46,21 @@ export function canvasVisibleRect(camera: CanvasCamera, viewport: CanvasSize): C
   };
 }
 
+export function canvasItemAtCenter(items: readonly CanvasPlacement[], camera: CanvasCamera, viewport: CanvasSize, selectedId?: string): CanvasPlacement | undefined {
+  const visible = canvasVisibleRect(camera, viewport);
+  const center = { x: visible.x + visible.width / 2, y: visible.y + visible.height / 2 };
+  let closest: CanvasPlacement | undefined, distance = Infinity;
+  for (const item of items) {
+    if (Math.min(item.x + item.width, visible.x + visible.width) <= Math.max(item.x, visible.x)
+      || Math.min(item.y + item.height, visible.y + visible.height) <= Math.max(item.y, visible.y)) continue;
+    const dx = Math.max(item.x - center.x, 0, center.x - item.x - item.width);
+    const dy = Math.max(item.y - center.y, 0, center.y - item.y - item.height);
+    const next = dx * dx + dy * dy;
+    if (next < distance || (next === distance && item.id === selectedId)) { closest = item; distance = next; }
+  }
+  return closest;
+}
+
 export function clampCanvasCamera(camera: CanvasCamera, viewport: CanvasSize, bounds: CanvasRect, padding = 24): CanvasCamera {
   if (!viewport.width || !viewport.height) return camera;
   const axis = (position: number, start: number, length: number, available: number) =>
