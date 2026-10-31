@@ -48,7 +48,7 @@ const controls = {
   reference: { label: "用作精准参考", Icon: ScanFace },
   director: { label: "发送到图像工具", Icon: ArrowRight },
   reuse: { label: "回填参数", Icon: SlidersHorizontal },
-  enlarge: { label: "放大查看", Icon: Expand },
+  enlarge: { label: "查看图片与提示词", Icon: Expand },
   save: { label: "下载选中图", Icon: Download },
 };
 const primaryActions: CanvasToolbarActionId[] = ["enhance", "variations", "upscale", "img2img", "edit", "inpaint", "director"];

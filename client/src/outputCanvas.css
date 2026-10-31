@@ -23,10 +23,6 @@
 .nai-world-image > .encoded-file { width: 100%; height: 100%; font-size: calc(14px / var(--output-scale)); }
 .nai-world-image:not(.is-ready) > img { visibility: hidden; }
 .nai-world-entry.is-selected .nai-world-image { box-shadow: 0 0 0 calc(2px / var(--output-scale)) #f5f3c2; }
-.nai-world-selection { position: absolute; top: calc(8px / var(--output-scale)); left: calc(8px / var(--output-scale)); padding: calc(3px / var(--output-scale)) calc(7px / var(--output-scale)); border-radius: calc(4px / var(--output-scale)); background: #17192ce8; color: #f5f3c2; font-size: calc(11px / var(--output-scale)); pointer-events: none; }
-.nai-world-actions { position: absolute; right: calc(8px / var(--output-scale)); bottom: calc(8px / var(--output-scale)); display: flex; gap: calc(4px / var(--output-scale)); }
-.nai-world-actions button { display: grid; place-items: center; width: calc(32px / var(--output-scale)); height: calc(32px / var(--output-scale)); min-width: 0; min-height: 0; padding: 0; border: calc(1px / var(--output-scale)) solid #777b92; border-radius: calc(5px / var(--output-scale)); background: #17192ce8; color: #f5f3c2; cursor: pointer; }
-.nai-world-actions svg { width: calc(16px / var(--output-scale)); height: calc(16px / var(--output-scale)); }
 .nai-world-decoration,
 .nai-world-local-decoration { position: absolute; z-index: -1; pointer-events: none; }
 .nai-world-local-decoration { inset: -260px -360px; }

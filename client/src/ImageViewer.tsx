@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { LocalImage } from './types';
 import { downloadImage } from './storage';
@@ -15,12 +15,32 @@ export default function ImageViewer({row, rows, onSelect, onClose}: {
 }) {
   const [url, setUrl] = useState(''), [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<Point>({x:0,y:0});
+  const [showPrompts, setShowPrompts] = useState(true);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const sidebarId = `image-prompts-${row.id}`;
   const zoomRef = useRef(1), panRef = useRef<Point>({x:0,y:0});
   const stageRef = useRef<HTMLDivElement>(null);
   const pointers = useRef(new Map<number, Point>());
   const gesture = useRef<Gesture | undefined>(undefined);
   const index = rows.findIndex(item => item.id === row.id);
   const receipt = row.result.metadata.gate_receipt;
+
+  useLayoutEffect(() => {
+    const sidebar = sidebarRef.current;
+    if (!sidebar || !showPrompts) return;
+    const fitFields = () => {
+      const scrollTop = sidebar.scrollTop;
+      sidebar.querySelectorAll('textarea').forEach(field => {
+        field.style.height = '0px';
+        field.style.height = `${field.scrollHeight + field.offsetHeight - field.clientHeight}px`;
+      });
+      sidebar.scrollTop = scrollTop;
+    };
+    const observer = new ResizeObserver(fitFields);
+    observer.observe(sidebar);
+    fitFields();
+    return () => observer.disconnect();
+  }, [row.id, showPrompts]);
 
   const changeZoom = (next: number) => {
     const value = clampZoom(next);
@@ -140,8 +160,13 @@ export default function ImageViewer({row, rows, onSelect, onClose}: {
       <button aria-label="缩小图片" onClick={()=>changeZoom(zoomRef.current/1.25)}>−</button>
       <button onClick={resetView}>{Math.round(zoom*100)}% · 适应</button>
       <button aria-label="放大图片" onClick={()=>changeZoom(zoomRef.current*1.25)}>＋</button>
+      <button aria-expanded={showPrompts} aria-controls={sidebarId} onClick={()=>setShowPrompts(value=>!value)}>
+        {showPrompts ? '收起提示词' : '显示提示词'}
+      </button>
       <button onClick={()=>downloadImage(row)}>下载原图</button>
     </header>
+    <div className="image-viewer-body">
+    <aside ref={sidebarRef} id={sidebarId} className="image-viewer-sidebar" aria-label="图片提示词与生成详情" hidden={!showPrompts}>
     <details className="image-execution-details" key={row.id}>
       <summary>生成详情</summary>
       {receipt ? <>
@@ -159,15 +184,16 @@ export default function ImageViewer({row, rows, onSelect, onClose}: {
         <p>完成 {receipt.completed_images} 张 · 本图 {String(row.result.metadata.width)} × {String(row.result.metadata.height)}</p>
       </> : <p>这张图片没有 Gate 执行回执。</p>}
     </details>
-    <details className="image-execution-details image-prompt-details" key={`prompts:${row.id}`} open>
-      <summary>图片提示词 · 可选择部分文字复制</summary>
+    <section className="image-execution-details image-prompt-details" key={`prompts:${row.id}`}>
+      <h2>图片提示词</h2><small>可选择部分文字复制</small>
       <label>正面提示词<textarea aria-label="图片正面提示词" readOnly rows={3} value={row.job.prompt} /></label>
       <label>负面提示词<textarea aria-label="图片负面提示词" readOnly rows={2} value={row.job.negative_prompt} /></label>
       {(row.job.parameters.character_prompts ?? []).filter(character => character.enabled !== false).map((character, index) => <div key={index}>
         <label>角色 {index + 1} 正面<textarea aria-label={`角色 ${index + 1} 正面提示词`} readOnly rows={2} value={character.prompt} /></label>
         {character.negative_prompt && <label>角色 {index + 1} 负面<textarea aria-label={`角色 ${index + 1} 负面提示词`} readOnly rows={2} value={character.negative_prompt} /></label>}
       </div>)}
-    </details>
+    </section>
+    </aside>
     <div ref={stageRef} className="image-viewer-stage"
       onWheel={e=>changeZoom(zoomRef.current*(e.deltaY<0?1.1:1/1.1))}
       onPointerDown={handlePointerDown}
@@ -176,6 +202,7 @@ export default function ImageViewer({row, rows, onSelect, onClose}: {
       onPointerCancel={handleLostPointerCapture}
       onLostPointerCapture={handleLostPointerCapture}>
       {url && <img draggable={false} src={url} alt="查看原图" style={{transform:`translate(${pan.x}px,${pan.y}px) scale(${zoom})`}}/>}
+    </div>
     </div>
   </div>;
 }
