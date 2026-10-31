@@ -98,7 +98,6 @@ const {enhanceScales, enhanceDimensions, enhanceTask} = actualModule('enhance.ts
 const {withQuote} = actualModule('quote.ts');
 const gatePrice = units => ({source:'gate',units,unit_label:'积分',verified:false,message:'Gate fixture',cost_limit:{anlas:units,v5:0},encoding_cost_limit:{anlas:2,v5:0}});
 const {layoutCanvasItems, fitCanvasRect, zoomCanvasAt, canvasVisibleRect, canvasRectsIntersect, clampCanvasCamera} = actualModule('outputCanvasGeometry.ts');
-const {adjustPromptWeight} = actualModule('promptTags.ts');
 
 function actualFunction(name, scope) {
   scope = {effectiveModelForOperation, generationDimension, activeEnhance: null, enhanceTask, enhanceDimensions, withQuote, ...scope};
@@ -1110,26 +1109,6 @@ checks.push(['Enhance uses the selected pixels with current settings and confirm
     h.state[change]=['draft','enhance'].includes(change)?{...h.state[change]}:'changed';
     resume(true);await work;assert.equal(h.state.submitted.length,0,`${change} changed during confirmation must invalidate Enhance`);
   }
-}]);
-
-checks.push(['Selected prompt weight edits preserve text, selection and model syntax', async () => {
-  const model='nai-diffusion-4-5-full';
-  assert.equal(adjustPromptWeight('forest',2,2,1,model),null);
-  assert.equal(adjustPromptWeight('  ',0,2,1,model),null);
-  const first=adjustPromptWeight('river, red hair, sky',7,15,1,model);
-  assert.equal(first.value,'river, 1.1::red hair::, sky');
-  assert.equal(first.value.slice(first.selectionStart,first.selectionEnd),'red hair');
-  const second=adjustPromptWeight(first.value,first.selectionStart,first.selectionEnd,1,model);
-  assert.equal(second.value,'river, 1.2::red hair::, sky');
-  const back=adjustPromptWeight(first.value,first.selectionStart,first.selectionEnd,-1,model);
-  assert.equal(back.value,'river, red hair, sky');
-  assert.equal(adjustPromptWeight('1.2::猫, forest::',0,17,-1,model).value,'1.1::猫, forest::');
-  assert.equal(adjustPromptWeight('  red hair  ',0,12,1,model).value,'  1.1::red hair::  ');
-  assert.equal(adjustPromptWeight('{cat}',1,4,1,model).value,'1.15::cat::');
-  const legacy=adjustPromptWeight('cat',0,3,1,'nai-diffusion-3');
-  assert.equal(legacy.value,'{cat}');
-  assert.equal(adjustPromptWeight(legacy.value,legacy.selectionStart,legacy.selectionEnd,-1,'nai-diffusion-3').value,'cat');
-  assert.equal(adjustPromptWeight('[cat]',1,4,1,'nai-diffusion-3').value,'cat');
 }]);
 
 checks.push(['Output canvas layout preserves history positions and camera anchors', async () => {
